@@ -17,13 +17,9 @@ cache/
 *.info.gz
 Saves/
 
-# PyInstaller / packaging build output
+# Build output
 build/
-dist/*
-!dist/installer/
-!dist/installer/.gitkeep
-!dist/installer/README.md
-!dist/installer/*.exe
+dist/
 *.spec.bak
 
 # Windows / editor noise
@@ -31,4 +27,3 @@ Thumbs.db
 Desktop.ini
 .vscode/
 .idea/
-
