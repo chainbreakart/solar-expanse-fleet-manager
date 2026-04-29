@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime state
+logs/
+ipc/
+cache/
+*.log
+
+# Solar Expanse save files stay local
+*.json.gz
+*.info.gz
+Saves/
+
+# PyInstaller / packaging build output
+build/
+dist/*
+!dist/installer/
+!dist/installer/.gitkeep
+!dist/installer/README.md
+!dist/installer/*.exe
+*.spec.bak
+
+# Windows / editor noise
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+

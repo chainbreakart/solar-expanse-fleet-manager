@@ -1,0 +1,13 @@
+game_key,display_name,context,capacity_per_unit,capacity_offset,unlock_research_id,unlock_research_title,unlock_research_hours,source_method
+module_habitat,Mobile Habitat,Deployable,20,820,,,,raw_bytes_after_special_ability_8
+build_space_0gcolony,ROTATING HABITAT,Orbital,100,848,research_lifesup_8,Spin-Grav Habitation,3000000.0,raw_bytes_after_special_ability_8
+build_space_0gdome,ROTATING STATION,Orbital,1000,880,research_lifesup_14,In-Orbit Production,4800000.0,raw_bytes_after_special_ability_8
+build_space_0gcity,CITY STATION,Orbital,20000,880,research_lifesup_14,In-Orbit Production,4800000.0,raw_bytes_after_special_ability_8
+build_outpost,OUTPOST,Surface,10,844,research_lifesup_9,Planetary Habitats,1200000.0,raw_bytes_after_special_ability_8
+build_habitat,HABITAT,Surface,100,844,research_lifesup_9,Planetary Habitats,1200000.0,raw_bytes_after_special_ability_8
+build_habitatunder,UNDERGROUND HABITAT,Surface,100,852,research_lifesup_11,Colony Construction,2160000.0,raw_bytes_after_special_ability_8
+build_habitatdome,DOME HABITAT,Surface,1000,884,research_lifesup_10,Regolith Shielding,3000000.0,raw_bytes_after_special_ability_8
+build_habitatcity,CITY,Surface,300000,884,research_lifesup_10,Regolith Shielding,3000000.0,raw_bytes_after_special_ability_8
+module_crew_compartment,CREW COMPARTMENT TYPE-S,Transport,5,-1,research_lifesup_1,Crewed Flight,1200000.0,language_text_numeric_capacity
+module_crew_medium,CREW COMPARTMENT TYPE-M,Transport,20,-1,research_lifesup_2,Improved Capsule Construction,2160000.0,language_text_numeric_capacity
+module_crew_large,CREW COMPARTMENT TYPE-L,Transport,100,-1,research_lifesup_4,STO Transports,3000000.0,language_text_numeric_capacity

@@ -1,0 +1,151 @@
+object_id,display_name,raw_name,object_type,object_type_name,parent_id,can_mine,path_id
+0,Sun,Sun,3,Other,,True,5448
+8,Pluto,Pluto,0,Planet,0,True,5952
+10,Mercury,Mercury,0,Planet,0,True,5889
+24,Venus,Venus,0,Planet,0,True,5984
+56,Jupiter,Jupiter,0,Planet,0,True,5684
+59,Mars,Mars,0,Planet,0,True,5743
+66,Earth,Earth,0,Planet,0,True,5300
+68,Neptune,Neptune,0,Planet,0,True,5397
+73,Saturn,Saturn,0,Planet,0,True,6493
+74,Uranus,Uranus,0,Planet,0,True,5962
+75,1P Halley,1P Halley,7,Comet,,True,5648
+78,4P Faye,4P Faye,7,Comet,,True,5830
+79,2P Encke,2P Encke,7,Comet,,True,6425
+81,Flora,Flora,2,Asteroid,,True,5933
+82,Iris,Iris,2,Asteroid,,True,5611
+83,Hebe,Hebe,2,Asteroid,,True,5640
+84,Astraea,Astraea,2,Asteroid,,True,6501
+85,Vesta,Vesta,2,Asteroid,,True,6381
+86,Ceres,Ceres,2,Asteroid,,True,5346
+87,Moon,Moon,1,Moon,66,True,6509
+88,Low Orbit of Earth,LO,4,Orbit,66,True,5317
+89,Phobos,Phobos,1,Moon,59,True,6134
+90,Deimos,Deimos,1,Moon,59,True,5663
+91,Io,Io,1,Moon,56,True,6001
+92,Europa,Europa,1,Moon,56,True,6397
+93,Ganymede,Ganymede,1,Moon,56,True,6089
+94,Callisto,Callisto,1,Moon,56,True,5697
+95,Amalthea,Amalthea,1,Moon,56,True,5363
+97,Rhea,Rhea,1,Moon,73,True,5502
+98,Titan,Titan,1,Moon,73,True,5552
+99,Dione,Dione,1,Moon,73,True,6086
+100,Tethys,Tethys,1,Moon,73,True,5820
+101,Enceladus,Enceladus,1,Moon,73,True,5989
+102,Mimas,Mimas,1,Moon,73,True,5646
+103,Hyperion,Hyperion,1,Moon,73,True,5812
+106,Titania,Titania,1,Moon,74,True,5975
+107,Oberon,Oberon,1,Moon,74,True,6078
+108,Umbriel,Umbriel,1,Moon,74,True,5899
+109,Ariel,Ariel,1,Moon,74,True,6426
+110,Puck,Puck,1,Moon,74,True,5918
+113,Triton,Triton,1,Moon,68,True,5336
+114,Proteus,Proteus,1,Moon,68,True,5464
+115,Nereid,Nereid,1,Moon,68,True,6333
+116,Charon,Charon,1,Moon,8,True,6164
+120,Low Orbit of Moon,LOMoon,4,Orbit,87,True,6506
+124,Parthenope,Parthenope,2,Asteroid,,True,5711
+125,Victoria,Victoria,2,Asteroid,,True,6125
+126,Egeria,Egeria,2,Asteroid,,True,6059
+130,Melpomene,Melpomene,2,Asteroid,,True,5327
+131,Massalia,Massalia,2,Asteroid,,True,6490
+133,Themis,Themis,2,Asteroid,,True,5901
+145,Atalante,Atalante,2,Asteroid,,True,5555
+147,Leda,Leda,2,Asteroid,,True,5924
+150,Daphne,Daphne,2,Asteroid,,True,5366
+161,Kalypso,Kalypso,2,Asteroid,,True,6058
+167,Elpis,Elpis,2,Asteroid,,True,6231
+173,Cybele,Cybele,2,Asteroid,,True,5549
+184,Freia,Freia,2,Asteroid,,True,5786
+207,Hygiea,Hygiea,2,Asteroid,,True,5326
+208,Metis,Metis,2,Asteroid,,True,5290
+209,Psyche,Psyche,2,Asteroid,,True,5627
+210,Eunomia,Eunomia,2,Asteroid,,True,6166
+211,Fortuna,Fortuna,2,Asteroid,,True,5532
+212,Lutetia,Lutetia,2,Asteroid,,True,5453
+213,Sylvia,Sylvia,2,Asteroid,,True,5409
+214,Minerva,Minerva,2,Asteroid,,True,6277
+215,Hertha,Hertha,2,Asteroid,,True,5986
+216,Polana,Polana,2,Asteroid,,True,6129
+217,Koronis,Koronis,2,Asteroid,,True,5823
+218,Kleopatra,Kleopatra,2,Asteroid,,True,5750
+219,Davida,Davida,2,Asteroid,,True,6422
+220,Gefion,Gefion,2,Asteroid,,True,5431
+223,Juno,Juno,2,Asteroid,,True,5256
+224,Low Orbit of Mars,LO,4,Orbit,59,True,5477
+225,Pallas,Pallas,2,Asteroid,,True,5665
+226,Kalliope,Kalliope,2,Asteroid,,True,6211
+229,Iapetus,Iapetus,1,Moon,73,True,6423
+248,Low Orbit of Triton,LO,4,Orbit,113,True,6443
+254,Low Orbit of Amalthea,LO,4,Orbit,95,True,6393
+260,Low Orbit of Neptune,LO,4,Orbit,68,True,5498
+270,Low Orbit of Proteus,LO,4,Orbit,114,True,5800
+276,Low Orbit of Rhea,LO,4,Orbit,97,True,6252
+290,Low Orbit of Titan,LO,4,Orbit,98,True,5912
+316,Low Orbit of Mimas,LO,4,Orbit,102,True,6032
+320,Low Orbit of Deimos,LO,4,Orbit,90,True,5427
+333,Low Orbit of Callisto,LO,4,Orbit,94,True,5809
+352,Low Orbit of Hyperion,LO,4,Orbit,103,True,5753
+354,Low Orbit of Tethys,LO,4,Orbit,100,True,5545
+366,Low Orbit of Mercury,LO,4,Orbit,10,True,5801
+372,Low Orbit of Umbriel,LO,4,Orbit,108,True,5507
+380,Low Orbit of Puck,LO,4,Orbit,110,True,6364
+398,Low Orbit of Titania,LO,4,Orbit,106,True,5656
+402,Low Orbit of Venus,LO,4,Orbit,24,True,5381
+408,Low Orbit of Enceladus,LO,4,Orbit,101,True,6269
+418,Low Orbit of Io,LO,4,Orbit,91,True,6028
+438,Low Orbit of Oberon,LO,4,Orbit,107,True,5469
+440,Low Orbit of Dione,LO,4,Orbit,99,True,5904
+442,Low Orbit of Ganymede,LO,4,Orbit,93,True,5650
+450,Low Orbit of Phobos,LO,4,Orbit,89,True,5951
+452,Low Orbit of Charon,LO,4,Orbit,116,True,5681
+478,Low Orbit of Nereid,LO,4,Orbit,115,True,5722
+486,Low Orbit of Europa,LO,4,Orbit,92,True,5790
+490,Low Orbit of Iapetus,LO,4,Orbit,229,True,5573
+494,Low Orbit of Ariel,LO,4,Orbit,109,True,6204
+495,Low Orbit of Jupiter,LO,4,Orbit,56,True,5597
+496,Low Orbit of Saturn,LO,4,Orbit,73,True,5559
+498,Low Orbit of Uranus,LO,4,Orbit,74,True,5783
+499,Low Orbit of Pluto,LO,4,Orbit,8,True,6189
+500,Apophis,Apophis,2,Asteroid,,True,5580
+501,Bennu,Bennu,2,Asteroid,,True,6054
+502,Itokawa,Itokawa,2,Asteroid,,True,6042
+503,Ishtar,Ishtar,2,Asteroid,,True,5491
+504,Cruithne,Cruithne,2,Asteroid,,True,5623
+505,Eros,Eros,2,Asteroid,,True,5457
+506,Ganymed,Ganymed,2,Asteroid,,True,6091
+507,Kamooalewa,Kamooalewa,2,Asteroid,,True,6177
+508,Peppin,Peppin,2,Asteroid,,True,5639
+509,Nysa,Nysa,2,Asteroid,,True,6152
+510,Kutno,Kutno,2,Asteroid,,True,5902
+511,TJ66,TJ66,2,Asteroid,,True,5600
+512,Sharp,Sharp,2,Asteroid,,True,5325
+513,Noviomagum,Noviomagum,2,Asteroid,,True,5551
+514,Dwornik,Dwornik,2,Asteroid,,True,5675
+515,Riema,Riema,2,Asteroid,,True,5983
+516,Varsoviom,Varsoviom,2,Asteroid,,True,5578
+517,Koza,Koza,2,Asteroid,,True,5484
+518,Geraldino,Geraldino,2,Asteroid,,True,6351
+519,Kurai,Kurai,2,Asteroid,,True,5948
+520,Terrora,Terrora,2,Asteroid,,True,6003
+521,Tirza,Tirza,2,Asteroid,,True,6500
+522,Sunset,Sunset,2,Asteroid,,True,6227
+523,Nebula,Nebula,2,Asteroid,,True,5632
+524,Dover,Dover,2,Asteroid,,True,5819
+525,Trus,Trus,2,Asteroid,,True,5897
+526,Usher,Usher,2,Asteroid,,True,5375
+527,Rider,Rider,2,Asteroid,,True,5504
+528,Kris,Kris,2,Asteroid,,True,6253
+529,Nosfer,Nosfer,2,Asteroid,,True,5257
+530,Duboshin,Duboshin,2,Asteroid,,True,6210
+531,Haidea,Haidea,2,Asteroid,,True,6335
+532,Thule,Thule,2,Asteroid,,True,6122
+533,Extinctor,Extinctor,2,Asteroid,,True,6049
+534,Patroclus,Patroclus,2,Asteroid,,True,5956
+535,Aneas,Aneas,2,Asteroid,,True,5304
+536,Paris,Paris,2,Asteroid,,True,5908
+537,Achilles,Achilles,2,Asteroid,,True,6108
+538,Hektor,Hektor,2,Asteroid,,True,6070
+539,Agamemnon,Agamemnon,2,Asteroid,,True,6270
+540,Nestor,Nestor,2,Asteroid,,True,5577
+541,SunOrbit,SunOrbit,13,SolarOrbit,0,False,6382
