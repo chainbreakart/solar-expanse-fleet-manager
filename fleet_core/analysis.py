@@ -14,6 +14,7 @@ from .normalizer import (
     MissionFact,
     ObjectFact,
     PopulationReadinessMetric,
+    ProductionBalanceMetric,
     ResourceStockFact,
     ReturnFuelMetric,
     RouteMetric,
@@ -25,6 +26,7 @@ from .normalizer import (
     build_object_facts,
     build_object_metadata,
     build_population_readiness_metrics,
+    build_production_balance_metrics,
     build_resource_stock_facts,
     build_return_fuel_metrics,
     build_route_metrics,
@@ -71,6 +73,7 @@ class SaveAnalysis:
     body_metrics: list[BodyMetric]
     crew_metrics: list[CrewMetric]
     population_readiness_metrics: list[PopulationReadinessMetric]
+    production_balance_metrics: list[ProductionBalanceMetric]
     return_fuel_metrics: list[ReturnFuelMetric]
     fleet_rows: list[FleetRow]
 
@@ -311,6 +314,7 @@ def analyze_save(slot: SaveSlot, repo_root: Path, *, include_ai_and_wg: bool = F
     route_metrics = build_route_metrics(craft_facts, cargo_facts)
     body_metrics = build_body_metrics(object_facts, craft_facts, cargo_facts, mission_facts)
     crew_metrics = build_crew_metrics(cargo_facts, craft_facts, transport_capacities, current_time)
+    production_balance_metrics = build_production_balance_metrics(resource_stock_facts, object_facts)
     population_readiness_metrics = build_population_readiness_metrics(
         save,
         repo_root,
@@ -372,6 +376,7 @@ def analyze_save(slot: SaveSlot, repo_root: Path, *, include_ai_and_wg: bool = F
         body_metrics=body_metrics,
         crew_metrics=crew_metrics,
         population_readiness_metrics=population_readiness_metrics,
+        production_balance_metrics=production_balance_metrics,
         return_fuel_metrics=return_fuel_metrics,
         fleet_rows=fleet_rows,
     )

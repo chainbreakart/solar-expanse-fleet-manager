@@ -49,6 +49,9 @@ HUMAN_RESOURCE_KEY = "id_resource_human"
 SURFACE_LIFE_SUPPORT_MULTIPLIER = 5.0
 CREW_IN_HABITATS_LIFE_SUPPORT_MULTIPLIER = 0.5
 SUPPLY_TO_LIFE_SUPPORT_MULTIPLIER = 365.0
+PRODUCTION_RUNWAY_WARNING_DAYS = 730
+PRODUCTION_RUNWAY_URGENT_DAYS = 365
+PRODUCTION_RUNWAY_CRITICAL_DAYS = 183
 
 
 @dataclass(frozen=True)
@@ -195,6 +198,25 @@ class ResourceStockFact:
     value: float
     intake: float
     outtake: float
+    source: str
+
+
+@dataclass(frozen=True)
+class ProductionBalanceMetric:
+    production_key: str
+    company: str
+    object_id: int
+    object_label: str
+    object_type: str
+    resource_key: str
+    resource_name: str
+    stock: float
+    intake_per_day: float
+    outtake_per_day: float
+    net_per_day: float
+    runway_days: float | None
+    status: str
+    status_basis: str
     source: str
 
 
@@ -1900,6 +1922,72 @@ def build_resource_stock_facts(
     return sorted(facts, key=lambda fact: (fact.company, fact.object_label, fact.resource_name))
 
 
+def production_runway_days(stock: float, net_per_day: float) -> float | None:
+    if net_per_day >= 0:
+        return None
+    if stock <= 0:
+        return 0.0
+    return stock / abs(net_per_day)
+
+
+def production_status(stock: float, net_per_day: float) -> tuple[str, str]:
+    if net_per_day >= 0:
+        return "Stable", "non-negative net flow"
+    if stock <= 0:
+        return "Critical", "stock is empty and net flow is negative"
+    runway_days = stock / abs(net_per_day)
+    if runway_days < PRODUCTION_RUNWAY_CRITICAL_DAYS:
+        return "Critical", "less than half a year of stock remaining"
+    if runway_days < PRODUCTION_RUNWAY_URGENT_DAYS:
+        return "Urgent", "less than one year of stock remaining"
+    if runway_days < PRODUCTION_RUNWAY_WARNING_DAYS:
+        return "Warning", "less than two years of stock remaining"
+    return "Monitor", "negative flow, but more than two years of stock remain"
+
+
+def build_production_balance_metrics(
+    resource_stock_facts: list[ResourceStockFact],
+    object_facts: dict[int, ObjectFact],
+) -> list[ProductionBalanceMetric]:
+    metrics: list[ProductionBalanceMetric] = []
+    for fact in resource_stock_facts:
+        net = fact.intake - fact.outtake
+        runway_days = production_runway_days(fact.value, net)
+        status, status_basis = production_status(fact.value, net)
+        object_fact = object_facts.get(fact.object_id)
+        object_type = object_fact.object_type if object_fact else ""
+        metrics.append(
+            ProductionBalanceMetric(
+                production_key=f"{fact.company}:{fact.object_id}:{fact.resource_key}",
+                company=fact.company,
+                object_id=fact.object_id,
+                object_label=fact.object_label,
+                object_type=object_type,
+                resource_key=fact.resource_key,
+                resource_name=fact.resource_name,
+                stock=fact.value,
+                intake_per_day=fact.intake,
+                outtake_per_day=fact.outtake,
+                net_per_day=net,
+                runway_days=runway_days,
+                status=status,
+                status_basis=status_basis,
+                source=fact.source,
+            )
+        )
+
+    status_rank = {"Critical": 0, "Urgent": 1, "Warning": 2, "Monitor": 3, "Stable": 4}
+    return sorted(
+        metrics,
+        key=lambda metric: (
+            status_rank.get(metric.status, 9),
+            metric.runway_days if metric.runway_days is not None else float("inf"),
+            metric.object_label,
+            metric.resource_name,
+        ),
+    )
+
+
 def load_habitat_capacity_map(repo_root: Path) -> dict[str, float]:
     capacities: dict[str, float] = {}
     path = repo_root / "data" / "derived" / "population" / "habitat_capacities.csv"
@@ -2021,7 +2109,7 @@ def effective_supply_modifier(saved_outtake: float, base_modeled_demand: float) 
 
 
 def population_severity_rank(severity: str) -> int:
-    return {"Safe": 0, "Warning": 1, "Urgent": 2, "Critical": 3}.get(severity, 0)
+    return {"Safe": 0, "Monitor": 1, "Warning": 2, "Urgent": 3, "Critical": 4}.get(severity, 0)
 
 
 def stronger_population_severity(left: str, right: str) -> str:
@@ -2037,7 +2125,7 @@ def supply_runway_severity(runway_days: float | None, projected_net: float) -> s
         return "Urgent"
     if runway_days < 365.0 * 2.0:
         return "Warning"
-    return "Safe"
+    return "Monitor"
 
 
 def runway_label(runway_days: float | None, projected_net: float) -> str:

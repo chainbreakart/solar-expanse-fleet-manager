@@ -251,7 +251,9 @@ body::after {
 
 .text-sm,
 .section-card-copy,
-.population-kpi-hint {
+.population-kpi-hint,
+.save-control-note,
+.save-status {
     color: var(--console-muted) !important;
 }
 
@@ -273,11 +275,48 @@ body::after {
     border-top: 1px solid var(--console-line-soft);
 }
 
+.save-control-bar {
+    width: 100%;
+    margin-top: 24px;
+    padding: 16px 18px 14px;
+}
+
+.save-control-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.save-select {
+    flex: 1 1 420px;
+    max-width: 620px;
+}
+
+.save-reload {
+    min-height: 42px;
+}
+
+.save-control-note {
+    flex: 1 1 260px;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.save-status {
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
 .metric,
 .population-kpi,
 .section-card,
 .dashboard-card,
 .dashboard-panel,
+.save-control-bar,
 .q-table__container,
 .q-field--outlined .q-field__control,
 .q-menu {
@@ -299,6 +338,7 @@ body::after {
 .section-card::before,
 .dashboard-card::before,
 .dashboard-panel::before,
+.save-control-bar::before,
 .q-table__container::before {
     content: "";
     position: absolute;
@@ -323,7 +363,8 @@ body::after {
 .metric::after,
 .population-kpi::after,
 .section-card::after,
-.dashboard-card::after {
+.dashboard-card::after,
+.save-control-bar::after {
     content: "";
     position: absolute;
     right: 12px;
@@ -490,12 +531,66 @@ body::after {
     line-height: 1.35;
 }
 
+.mode-control-row {
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.mode-info {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.info-tooltip-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--console-line);
+    border-radius: var(--console-radius);
+    background: rgba(5, 23, 34, 0.62);
+    color: var(--console-cyan);
+    cursor: help;
+}
+
+.info-tooltip-icon {
+    font-size: 17px;
+}
+
+.heatmap-mode-summary {
+    max-width: 920px;
+    margin: -8px 0 10px 4px;
+}
+
 .viz-card {
     min-height: 440px;
     display: flex;
     flex-direction: column;
     contain: layout paint;
     scrollbar-width: none;
+}
+
+.viz-card-wide {
+    width: 100%;
+    min-height: 680px;
+    margin-bottom: 16px;
+}
+
+.heatmap-plot-container {
+    width: 100%;
+    min-height: 590px;
+    flex: 1 1 auto;
+}
+
+.heatmap-plot-container .heatmap-plot,
+.heatmap-plot-container .js-plotly-plot,
+.heatmap-plot-container .plot-container,
+.heatmap-plot-container .svg-container {
+    width: 100% !important;
+    height: 590px !important;
+    min-height: 590px;
 }
 
 .viz-card-title {
@@ -706,6 +801,12 @@ body::after {
     color: #a8ffd7;
 }
 
+.readiness-monitor {
+    border: 1px solid rgba(70, 184, 255, 0.64);
+    background: rgba(70, 184, 255, 0.12);
+    color: #9be7ff;
+}
+
 .readiness-critical {
     border: 1px solid rgba(255, 95, 108, 0.78);
     background: rgba(255, 95, 108, 0.16);
@@ -732,7 +833,8 @@ body::after {
     margin-top: 4px;
 }
 
-.people-detail {
+.people-detail,
+.cargo-detail {
     margin: 5px 0 10px 42px;
     max-width: min(1080px, calc(100vw - 120px));
     border: 1px solid var(--console-line);
@@ -743,7 +845,8 @@ body::after {
     scrollbar-gutter: stable;
 }
 
-.people-detail-row {
+.people-detail-row,
+.cargo-detail-row {
     display: grid;
     grid-template-columns: minmax(180px, 1.5fr) minmax(72px, .6fr) repeat(4, minmax(58px, .45fr)) minmax(90px, .7fr);
     gap: 8px;
@@ -753,11 +856,18 @@ body::after {
     border-top: 1px solid rgba(86, 179, 214, 0.16);
 }
 
-.people-detail-row:first-child {
+.cargo-detail-row {
+    grid-template-columns: minmax(220px, 1.5fr) minmax(120px, .7fr) minmax(120px, .7fr) minmax(90px, .45fr);
+    min-width: 620px;
+}
+
+.people-detail-row:first-child,
+.cargo-detail-row:first-child {
     border-top: 0;
 }
 
-.people-detail-header {
+.people-detail-header,
+.cargo-detail-header {
     background: rgba(8, 32, 46, 0.92);
     color: #61ddff;
     font-size: 11px;

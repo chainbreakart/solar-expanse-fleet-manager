@@ -14,13 +14,16 @@ from fleet_core.ipc import ensure_ipc_paths
 from fleet_core.odin_save_parser import SaveParseError
 from fleet_core.save_finder import SaveSlot, discover_saves
 from fleet_modules import MODULES
+from fleet_modules.cargo_dashboard import render_cargo_dashboard
 from fleet_modules.people_transit import MODULE as PEOPLE_TRANSIT
 from fleet_modules.population_dashboard import (
+    ATTENTION_STATUSES,
     population_flights,
     population_places,
     render_population_movement_dashboard,
     render_population_places_dashboard,
 )
+from fleet_modules.production_dashboard import render_production_dashboard
 from fleet_modules.shared import TableModule
 
 REPO_ROOT = resource_root()
@@ -220,6 +223,17 @@ def empty_meta() -> dict[str, str]:
     }
 
 
+def set_selected_save(label: str | None) -> SaveSlot | None:
+    """Remember the manually selected save for page-to-page navigation."""
+    global selected_save
+    if label is None:
+        return selected_save
+    slot = save_options.get(str(label))
+    if slot is not None:
+        selected_save = slot
+    return slot
+
+
 def apply_theme() -> None:
     ui.colors(primary="#35d8ff", secondary="#8fa7b5", accent="#ff9d2e", positive="#43e6a0")
     ui.add_css(STYLESHEET_PATH.read_text(encoding="utf-8"))
@@ -230,6 +244,8 @@ def render_nav(active: str) -> None:
         for key, label, path in (
             ("overview", "Overview", "/"),
             ("population", "Population", "/population"),
+            ("cargo", "Cargo", "/cargo"),
+            ("production", "Production", "/production"),
             ("data", "Data Tables", "/data"),
         ):
             classes = "section-link section-link-active" if key == active else "section-link"
@@ -257,16 +273,21 @@ def render_metric_cards(container, meta: dict[str, str]) -> None:
                 ui.label(meta.get(key, "") or "-").classes("metric-value")
 
 
-def render_save_controls() -> tuple[ui.select, ui.checkbox]:
-    select = ui.select(
-        options=list(save_options.keys()),
-        value=selected_save.label if selected_save else None,
-        label="Save",
-    ).classes("w-[520px] max-w-full")
-    include_ai_and_wg = ui.checkbox("Include AI/WG companies", value=False).classes("ai-toggle")
-    with include_ai_and_wg:
-        ui.tooltip("Curiosity/debug view. Default stays focused on the player corporation.")
-    return select, include_ai_and_wg
+def render_save_controls() -> tuple[ui.select, ui.checkbox, ui.button, ui.label]:
+    with ui.element("div").classes("save-control-bar"):
+        with ui.row().classes("save-control-row"):
+            select = ui.select(
+                options=list(save_options.keys()),
+                value=selected_save.label if selected_save else None,
+                label="Save",
+            ).classes("save-select")
+            include_ai_and_wg = ui.checkbox("Include AI/WG companies", value=False).classes("ai-toggle")
+            with include_ai_and_wg:
+                ui.tooltip("Curiosity/debug view. Default stays focused on the player corporation.")
+            reload_button = ui.button("Reload", icon="refresh").classes("save-reload")
+            ui.label("Read-only MVP. It never writes to your save files.").classes("save-control-note")
+        status_label = ui.label("").classes("save-status")
+    return select, include_ai_and_wg, reload_button, status_label
 
 
 def load_analysis(slot: SaveSlot | None, include_ai_and_wg: bool, status_label):
@@ -335,6 +356,18 @@ def render_overview_content(container, meta: dict[str, str]) -> None:
                 ).classes("section-card-copy")
                 ui.link("Open population dashboard", "/population").classes("section-link mt-3 inline-flex")
             with ui.element("div").classes("section-card"):
+                ui.label("Cargo Transit").classes("section-card-title")
+                ui.label(
+                    "Cargo movement KPIs, route summaries, and grouped manifest drill-downs."
+                ).classes("section-card-copy")
+                ui.link("Open cargo dashboard", "/cargo").classes("section-link mt-3 inline-flex")
+            with ui.element("div").classes("section-card"):
+                ui.label("Production").classes("section-card-title")
+                ui.label(
+                    "Save-grounded stock, intake, outtake, net flow, and depletion runway."
+                ).classes("section-card-copy")
+                ui.link("Open production dashboard", "/production").classes("section-link mt-3 inline-flex")
+            with ui.element("div").classes("section-card"):
                 ui.label("Data Tables").classes("section-card-title")
                 ui.label(
                     "Fleet, route, body, people transit, and return-fuel boards for detailed inspection."
@@ -352,7 +385,7 @@ def render_population_hub_content(container, analysis, meta: dict[str, str]) -> 
     moving_people = meta.get("people_in_transit") or "0"
     flights = population_flights(analysis)
     places = population_places(analysis)
-    places_with_concerns = sum(1 for row in places if row["status"] != "Safe")
+    places_with_concerns = sum(1 for row in places if row["status"] in ATTENTION_STATUSES)
     with container:
         with ui.element("div").classes("overview-grid"):
             with ui.element("div").classes("section-card"):
@@ -383,9 +416,7 @@ def overview_page() -> None:
         render_nav("overview")
         ui.label("Solar Expanse Fleet Manager").classes("text-2xl font-semibold")
         ui.label("Topline movement status and section launcher.").classes("text-sm text-slate-600")
-        status_label = ui.label("").classes("text-sm text-slate-600")
         metrics = ui.row().classes("gap-2")
-        select, include_ai_and_wg = render_save_controls()
         content = ui.column().classes("w-full")
 
         def clear_page() -> None:
@@ -402,11 +433,10 @@ def overview_page() -> None:
             render_overview_content(content, meta)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
-        select.on_value_change(lambda event: load_save(save_options.get(event.value)))
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
         include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
-        with ui.row().classes("toolbar"):
-            ui.button("Reload", icon="refresh", on_click=lambda: load_save(save_options.get(select.value)))
-            ui.label("Read-only MVP. It never writes to your save files.").classes("text-sm text-slate-600")
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
         load_save(selected_save)
 
 
@@ -418,13 +448,9 @@ def population_page() -> None:
         render_population_subnav("hub")
         ui.label("Population").classes("text-2xl font-semibold")
         ui.label("Section hub for people movement and colonies/stations sustainment.").classes("text-sm text-slate-600")
-        status_label = ui.label("").classes("text-sm text-slate-600")
-        metrics = ui.row().classes("gap-2")
-        select, include_ai_and_wg = render_save_controls()
         content = ui.column().classes("w-full")
 
         def clear_page() -> None:
-            render_metric_cards(metrics, empty_meta())
             content.clear()
 
         def load_save(slot: SaveSlot | None) -> None:
@@ -433,15 +459,13 @@ def population_page() -> None:
                 clear_page()
                 return
             meta = meta_with_module_metrics(analysis)
-            render_metric_cards(metrics, meta)
             render_population_hub_content(content, analysis, meta)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
-        select.on_value_change(lambda event: load_save(save_options.get(event.value)))
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
         include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
-        with ui.row().classes("toolbar"):
-            ui.button("Reload", icon="refresh", on_click=lambda: load_save(save_options.get(select.value)))
-            ui.label("Read-only MVP. It never writes to your save files.").classes("text-sm text-slate-600")
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
         load_save(selected_save)
 
 
@@ -453,13 +477,9 @@ def population_movement_page() -> None:
         render_population_subnav("movement")
         ui.label("People Movement").classes("text-2xl font-semibold")
         ui.label("Flights, manifests, destination readiness, and in-transit drill-downs.").classes("text-sm text-slate-600")
-        status_label = ui.label("").classes("text-sm text-slate-600")
-        metrics = ui.row().classes("gap-2")
-        select, include_ai_and_wg = render_save_controls()
         content = ui.column().classes("w-full gap-3")
 
         def clear_page() -> None:
-            render_metric_cards(metrics, empty_meta())
             content.clear()
 
         def load_save(slot: SaveSlot | None) -> None:
@@ -467,8 +487,6 @@ def population_movement_page() -> None:
             if analysis is None or slot is None:
                 clear_page()
                 return
-            meta = meta_with_module_metrics(analysis)
-            render_metric_cards(metrics, meta)
             content.clear()
             with content:
                 dashboard_panel = ui.column().classes("dashboard-panel")
@@ -478,11 +496,10 @@ def population_movement_page() -> None:
                     mount_table(PEOPLE_TRANSIT, PEOPLE_TRANSIT.build_rows(analysis))
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
-        select.on_value_change(lambda event: load_save(save_options.get(event.value)))
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
         include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
-        with ui.row().classes("toolbar"):
-            ui.button("Reload", icon="refresh", on_click=lambda: load_save(save_options.get(select.value)))
-            ui.label("Read-only MVP. It never writes to your save files.").classes("text-sm text-slate-600")
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
         load_save(selected_save)
 
 
@@ -494,13 +511,9 @@ def population_places_page() -> None:
         render_population_subnav("places")
         ui.label("Colonies / Stations").classes("text-2xl font-semibold")
         ui.label("People in place, habitat capacity, Supply flow, and sustainment runway.").classes("text-sm text-slate-600")
-        status_label = ui.label("").classes("text-sm text-slate-600")
-        metrics = ui.row().classes("gap-2")
-        select, include_ai_and_wg = render_save_controls()
         content = ui.column().classes("w-full gap-3")
 
         def clear_page() -> None:
-            render_metric_cards(metrics, empty_meta())
             content.clear()
 
         def load_save(slot: SaveSlot | None) -> None:
@@ -508,19 +521,76 @@ def population_places_page() -> None:
             if analysis is None or slot is None:
                 clear_page()
                 return
-            meta = meta_with_module_metrics(analysis)
-            render_metric_cards(metrics, meta)
             content.clear()
             with content:
                 dashboard_panel = ui.column().classes("dashboard-panel")
                 render_population_places_dashboard(analysis, dashboard_panel)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
-        select.on_value_change(lambda event: load_save(save_options.get(event.value)))
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
         include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
-        with ui.row().classes("toolbar"):
-            ui.button("Reload", icon="refresh", on_click=lambda: load_save(save_options.get(select.value)))
-            ui.label("Read-only MVP. It never writes to your save files.").classes("text-sm text-slate-600")
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
+        load_save(selected_save)
+
+
+@ui.page("/cargo")
+def cargo_page() -> None:
+    apply_theme()
+    with ui.column().classes("app-shell w-full"):
+        render_nav("cargo")
+        ui.label("Cargo").classes("text-2xl font-semibold")
+        ui.label("Cargo movement, route pressure, and manifest drill-downs.").classes("text-sm text-slate-600")
+        content = ui.column().classes("w-full gap-3")
+
+        def clear_page() -> None:
+            content.clear()
+
+        def load_save(slot: SaveSlot | None) -> None:
+            analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
+            if analysis is None or slot is None:
+                clear_page()
+                return
+            content.clear()
+            with content:
+                dashboard_panel = ui.column().classes("dashboard-panel")
+                render_cargo_dashboard(analysis, dashboard_panel)
+            status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
+
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
+        include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
+        load_save(selected_save)
+
+
+@ui.page("/production")
+def production_page() -> None:
+    apply_theme()
+    with ui.column().classes("app-shell w-full"):
+        render_nav("production")
+        ui.label("Production").classes("text-2xl font-semibold")
+        ui.label("Resource stock, flow, and runway from company-local save data.").classes("text-sm text-slate-600")
+        content = ui.column().classes("w-full gap-3")
+
+        def clear_page() -> None:
+            content.clear()
+
+        def load_save(slot: SaveSlot | None) -> None:
+            analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
+            if analysis is None or slot is None:
+                clear_page()
+                return
+            content.clear()
+            with content:
+                dashboard_panel = ui.column().classes("dashboard-panel")
+                render_production_dashboard(analysis, dashboard_panel)
+            status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
+
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
+        include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
         load_save(selected_save)
 
 
@@ -533,9 +603,6 @@ def data_page() -> None:
         render_nav("data")
         ui.label("Data Tables").classes("text-2xl font-semibold")
         ui.label("Full drill-down boards for fleet, route, body, people, and fuel inspection.").classes("text-sm text-slate-600")
-        status_label = ui.label("").classes("text-sm text-slate-600")
-        metrics = ui.row().classes("gap-2")
-        select, include_ai_and_wg = render_save_controls()
 
         with ui.tabs().classes("w-full") as tabs:
             for module in MODULES:
@@ -551,28 +618,23 @@ def data_page() -> None:
             for table in module_tables.values():
                 table.rows = []
                 table.update()
-            render_metric_cards(metrics, empty_meta())
 
         def load_save(slot: SaveSlot | None) -> None:
             analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
             if analysis is None or slot is None:
                 clear_page()
                 return
-            meta = dict(analysis.meta)
             for module in MODULES:
                 rows = module.build_rows(analysis)
-                meta.update(module.build_metrics(analysis, rows))
                 table = module_tables[module.key]
                 table.rows = rows
                 table.update()
-            render_metric_cards(metrics, meta)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
-        select.on_value_change(lambda event: load_save(save_options.get(event.value)))
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
         include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
-        with ui.row().classes("toolbar"):
-            ui.button("Reload", icon="refresh", on_click=lambda: load_save(save_options.get(select.value)))
-            ui.label("Read-only MVP. It never writes to your save files.").classes("text-sm text-slate-600")
+        reload_button.on_click(lambda: load_save(save_options.get(select.value)))
         load_save(selected_save)
 
 

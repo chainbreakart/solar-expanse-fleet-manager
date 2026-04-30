@@ -1,29 +1,17 @@
-# Python
+.venv/
 __pycache__/
 *.py[cod]
-.venv*/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Local runtime state
-logs/
-ipc/
-cache/
 *.log
+.env
+.env.*
 
-# Solar Expanse save files stay local
-*.json.gz
-*.info.gz
-Saves/
-
-# Build output
 build/
 dist/
-*.spec.bak
+*.spec
 
-# Windows / editor noise
+*.json.gz
+*.info.gz
+*.tmp
+
+.DS_Store
 Thumbs.db
-Desktop.ini
-.vscode/
-.idea/

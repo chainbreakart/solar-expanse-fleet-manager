@@ -149,7 +149,9 @@ def build_metrics(_analysis: SaveAnalysis, rows: list[TableRow]) -> dict[str, st
         "loaded_people_items": str(sum(1 for detail in details if detail.get("state") == "Loaded")),
         "empty_crew_items": str(sum(1 for detail in details if detail.get("state") == "Empty")),
         "empty_crew_seats": str(sum(int_or_zero(row.get("empty_seats")) for row in rows)),
-        "population_readiness_alerts": str(sum(1 for row in rows if row.get("readiness") not in {"", "Safe"})),
+        "population_readiness_alerts": str(
+            sum(1 for row in rows if row.get("readiness") in {"Warning", "Urgent", "Critical"})
+        ),
     }
 
 

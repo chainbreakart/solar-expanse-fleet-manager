@@ -19,17 +19,28 @@ from fleet_core.normalizer import (
     load_habitat_capacity_map,
     modeled_surface_supply_demand,
     object_company_rows,
+    supply_runway_severity,
     stock_fact_lookup,
 )
 
 
-STATUS_RANK = {"Safe": 0, "Warning": 1, "Urgent": 2, "Critical": 3}
+STATUS_RANK = {"Safe": 0, "Monitor": 1, "Warning": 2, "Urgent": 3, "Critical": 4}
+ATTENTION_STATUSES = {"Warning", "Urgent", "Critical"}
 STATUS_COLORS = {
     "Safe": "#2f855a",
+    "Monitor": "#2b6cb0",
     "Warning": "#d9822b",
     "Urgent": "#c05621",
     "Critical": "#c53030",
     "Unknown": "#64748b",
+}
+READINESS_KPI_ORDER = ("Safe", "Monitor", "Warning", "Urgent", "Critical")
+READINESS_KPI_ABBR = {
+    "Safe": "S",
+    "Monitor": "M",
+    "Warning": "W",
+    "Urgent": "U",
+    "Critical": "C",
 }
 
 
@@ -46,9 +57,13 @@ readiness_columns = [
     {"name": "destination", "label": "Destination", "field": "destination", "sortable": True, "align": "left"},
     {"name": "status", "label": "Status", "field": "status", "sortable": True, "align": "left"},
     {"name": "inbound_people", "label": "Inbound", "field": "inbound_people", "sortable": True, "align": "right"},
-    {"name": "population", "label": "Pop Now -> Projected", "field": "population", "sortable": True, "align": "right"},
-    {"name": "housing", "label": "Housing", "field": "housing", "sortable": True, "align": "right"},
-    {"name": "supply", "label": "Supply", "field": "supply", "sortable": True, "align": "right"},
+    {"name": "current_population_label", "label": "Current Pop", "field": "current_population_label", "sortable": True, "align": "right"},
+    {"name": "completed_housing_label", "label": "Ready Housing", "field": "completed_housing_label", "sortable": True, "align": "right"},
+    {"name": "queued_housing_label", "label": "Queued Housing", "field": "queued_housing_label", "sortable": True, "align": "right"},
+    {"name": "arriving_housing_label", "label": "Arriving Habitat", "field": "arriving_housing_label", "sortable": True, "align": "right"},
+    {"name": "housing_gap_label", "label": "Housing Gap", "field": "housing_gap_label", "sortable": True, "align": "right"},
+    {"name": "supply_stock_label", "label": "Supply Stock", "field": "supply_stock_label", "sortable": True, "align": "right"},
+    {"name": "supply_net_label", "label": "Supply Net/day", "field": "supply_net_label", "sortable": True, "align": "right"},
     {"name": "runway", "label": "Runway", "field": "runway", "sortable": True, "align": "right"},
     {"name": "next_arrival", "label": "Next Arrival", "field": "next_arrival", "sortable": True, "align": "left"},
 ]
@@ -195,6 +210,9 @@ def population_metrics_by_destination(
         supply_stock = max((metric.supply_stock for metric in metrics), default=0.0)
         supply_intake = max((metric.supply_intake_per_day for metric in metrics), default=0.0)
         supply_outtake = max((metric.projected_supply_outtake_per_day for metric in metrics), default=0.0)
+        supply_net_label = f"{fmt_num(projected_net)}t/day"
+        if projected_net > 0:
+            supply_net_label = f"+{supply_net_label}"
 
         rows.append(
             {
@@ -208,20 +226,27 @@ def population_metrics_by_destination(
                 "details": list(worst_metric.details),
                 "inbound_people": inbound_people,
                 "current_population": current_population,
+                "current_population_label": fmt_num(current_population),
                 "projected_population": projected_population,
                 "population": f"{fmt_num(current_population)} -> {fmt_num(projected_population)}",
                 "completed_housing": completed_housing,
+                "completed_housing_label": fmt_num(completed_housing),
                 "queued_housing": queued_housing,
+                "queued_housing_label": fmt_num(queued_housing),
                 "arriving_housing": arriving_housing,
+                "arriving_housing_label": fmt_num(arriving_housing),
                 "housing_gap": housing_gap,
+                "housing_gap_label": fmt_num(housing_gap),
                 "housing": (
                     f"{fmt_num(completed_housing)} ready + {fmt_num(queued_housing)} queued + "
                     f"{fmt_num(arriving_housing)} carried; gap {fmt_num(housing_gap)}"
                 ),
                 "supply_stock": supply_stock,
+                "supply_stock_label": f"{fmt_num(supply_stock)}t",
                 "supply_intake_per_day": supply_intake,
                 "projected_supply_outtake_per_day": supply_outtake,
                 "projected_supply_net_per_day": projected_net,
+                "supply_net_label": supply_net_label,
                 "supply": (
                     f"{fmt_num(supply_stock)}t; "
                     f"{fmt_num(supply_intake)} in / {fmt_num(supply_outtake)} out per day"
@@ -301,27 +326,26 @@ def population_kpis(destination_rows: list[dict[str, Any]], flight_rows: list[di
     readiness_counts = defaultdict(int)
     for row in destination_rows:
         readiness_counts[str(row["status"])] += 1
-    concerns = sum(readiness_counts[status] for status in ("Warning", "Urgent", "Critical"))
-    critical = readiness_counts["Critical"]
+    readiness_value = " ".join(
+        f"{READINESS_KPI_ABBR[status]}:{readiness_counts[status]}" for status in READINESS_KPI_ORDER
+    )
+    readiness_hint = (
+        ", ".join(f"{status}: {readiness_counts[status]}" for status in READINESS_KPI_ORDER)
+        if destination_rows
+        else "no population destinations detected"
+    )
     return [
         ("People Moving", str(people), "loaded humans on active/planned flights"),
         ("Empty Holds", str(empty_modules), "crew modules moving without passengers"),
         ("Empty Seats", str(empty_seats), "unused detected transport seats"),
         ("Next Pop Arrival", next_arrival or "-", "earliest loaded population flight"),
-        ("Dest. Concerns", str(concerns), "non-safe destination readiness rows"),
-        ("Critical", str(critical), "critical population readiness rows"),
+        ("Readiness Mix", readiness_value, readiness_hint),
+        ("LS Concerns", "-", "life-support exhaustion count awaits formula validation"),
     ]
 
 
 def place_status(housing_gap: float, runway_days: float | None, supply_net: float) -> str:
-    status = "Safe"
-    if supply_net < 0 and runway_days is not None:
-        if runway_days < 365 / 2:
-            status = "Critical"
-        elif runway_days < 365:
-            status = "Urgent"
-        elif runway_days < 365 * 2:
-            status = "Warning"
+    status = supply_runway_severity(runway_days, supply_net)
     if housing_gap > 0:
         status = worst_status([status, "Urgent"])
     return status
@@ -371,7 +395,10 @@ def population_places(analysis: SaveAnalysis) -> list[dict[str, Any]]:
             pieces.append(f"Supply runway {runway_label(runway_days, supply_net)}")
         if incoming:
             pieces.append(f"{incoming} people inbound")
-        message = f"{status}: " + "; ".join(pieces) if pieces else "Safe: current population support looks stable"
+        if status == "Monitor" and pieces:
+            message = "Monitor: long-range drawdown; " + "; ".join(pieces)
+        else:
+            message = f"{status}: " + "; ".join(pieces) if pieces else "Safe: current population support looks stable"
         status_details = [
             f"Population: {fmt_num(current_population)}",
             f"Ready housing: {fmt_num(completed_housing)}",
@@ -426,7 +453,8 @@ def place_kpis(place_rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
     housing = sum(float(row["completed_housing"]) for row in place_rows)
     queued = sum(float(row["queued_housing"]) for row in place_rows)
     inbound = sum(int(row["inbound_people"]) for row in place_rows)
-    concerns = sum(1 for row in place_rows if row["status"] not in {"Safe"})
+    concerns = sum(1 for row in place_rows if row["status"] in ATTENTION_STATUSES)
+    monitor = sum(1 for row in place_rows if row["status"] == "Monitor")
     stable = sum(1 for row in place_rows if row["supply_net_per_day"] >= 0)
     return [
         ("Population", fmt_num(population), "humans detected in company-local stock"),
@@ -434,7 +462,7 @@ def place_kpis(place_rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
         ("Housing", fmt_num(housing), "detected completed habitat capacity"),
         ("Queued Housing", fmt_num(queued), "habitat capacity still in build queue"),
         ("Inbound", str(inbound), "people currently routed to these places"),
-        ("Concerns", str(concerns), f"{stable} places have non-negative Supply flow"),
+        ("Concerns", str(concerns), f"{monitor} monitor-only; {stable} places have non-negative Supply flow"),
     ]
 
 
@@ -453,7 +481,7 @@ def selected_place_chart_rows(
     limit: int,
     include_safe: bool,
 ) -> list[dict[str, Any]]:
-    rows = list(place_rows if include_safe else [row for row in place_rows if row["status"] != "Safe"])
+    rows = list(place_rows if include_safe else [row for row in place_rows if row["status"] in ATTENTION_STATUSES])
     if focus == "runway":
         rows.sort(key=lambda row: (place_runway_sort_value(row), -float(row["current_population"]), str(row["place"])))
     elif focus == "population":
@@ -793,7 +821,7 @@ def render_population_places_dashboard(analysis: SaveAnalysis, container: ui.ele
                     value=6,
                     label="Places Shown",
                 ).classes("chart-control chart-control-small")
-                include_safe = ui.checkbox("Include safe places", value=True).classes("chart-control-checkbox")
+                include_safe = ui.checkbox("Include safe / monitor places", value=False).classes("chart-control-checkbox")
                 summary = ui.label("").classes("chart-control-summary")
         chart_container = ui.column().classes("w-full")
 
@@ -806,8 +834,8 @@ def render_population_places_dashboard(analysis: SaveAnalysis, container: ui.ele
                 limit=limit,
                 include_safe=bool(include_safe.value),
             )
-            concern_count = sum(1 for row in rows if row["status"] != "Safe")
-            summary.text = f"Showing {len(rows)} of {len(place_rows)} places; {concern_count} non-safe in chart slice."
+            concern_count = sum(1 for row in rows if row["status"] in ATTENTION_STATUSES)
+            summary.text = f"Showing {len(rows)} of {len(place_rows)} places; {concern_count} actionable concerns in chart slice."
             render_places_charts(rows, chart_container)
 
         focus_select.on_value_change(lambda _: update_charts())
