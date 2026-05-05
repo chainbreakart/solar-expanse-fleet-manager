@@ -27,7 +27,6 @@ production_columns = [
 
 HEATMAP_MODES = {
     "balance": "Balance Focus",
-    "risk": "Risk Focus",
     "exporter": "Exporter Focus",
     "volume": "Volume Focus",
     "stock": "Stock Focus",
@@ -40,14 +39,6 @@ HEATMAP_MODE_HELP = {
             "Highlights the strongest production surpluses and deficits by net/day.",
             "Use this first when you want to see what can supply what is short.",
             "Color is net/day: green surplus, red deficit.",
-        ),
-    ),
-    "risk": InfoTooltipContent(
-        title="Risk Focus",
-        lines=(
-            "Prioritizes negative-net resources with the shortest stock runway.",
-            "Use this when you want to know what needs attention before time advances.",
-            "Color is net/day: red cells are active drawdown.",
         ),
     ),
     "exporter": InfoTooltipContent(
@@ -78,7 +69,6 @@ HEATMAP_MODE_HELP = {
 
 HEATMAP_MODE_SUMMARIES = {
     "balance": "Surpluses and deficits by net/day; best first pass for logistics planning.",
-    "risk": "Negative-net resources with short runway; best for finding urgent production risk.",
     "exporter": "Positive-net producers; best for finding candidate supply sources.",
     "volume": "Highest intake plus outtake; best for seeing where industry is active.",
     "stock": "Stored inventory with log color; best for locating reserves without flattening small stocks.",
@@ -86,12 +76,24 @@ HEATMAP_MODE_SUMMARIES = {
 
 OTHER_PLACES = "Other locations"
 OTHER_RESOURCES = "Other resources"
+SUPPLY_RESOURCE_KEY = "id_resource_supply"
+FUEL_RESOURCE_KEYS = {"id_resource_fuel", "id_resource_noblegas", "id_resource_hydrogen", "id_resource_hel3"}
+CONSTRUCTION_RESOURCE_KEYS = {
+    "id_resource_alloy",
+    "id_resource_chips",
+    "id_resource_glass",
+    "id_resource_metal",
+    "id_resource_plastic",
+    "id_resource_raremetal",
+    "id_resource_silicon",
+    "id_resource_steel",
+}
 
 
 def status_class(status: str) -> str:
     return {
         "Stable": "readiness-safe",
-        "Monitor": "readiness-safe",
+        "Monitor": "readiness-monitor",
         "Warning": "readiness-warning",
         "Urgent": "readiness-urgent",
         "Critical": "readiness-critical",
@@ -104,6 +106,29 @@ def runway_text(days: float | None) -> str:
     if days >= 365:
         return f"{fmt_num(days / 365.0)}y"
     return f"{fmt_num(days)}d"
+
+
+def runway_years(days: float | None) -> str:
+    if days is None:
+        return "stable"
+    return f"{fmt_num(days / 365.0)} years"
+
+
+def status_weight(status: str) -> int:
+    return {"Critical": 0, "Urgent": 1, "Warning": 2, "Monitor": 3, "Stable": 4}.get(status, 9)
+
+
+def watchlist_read(row: dict[str, Any]) -> str:
+    status = str(row["status"])
+    if status == "Critical":
+        return "Immediate logistics gap"
+    if status == "Urgent":
+        return "Needs planned resupply"
+    if status == "Warning":
+        return "Schedule before it tightens"
+    if status == "Monitor":
+        return "Long-runway drawdown"
+    return "Stable"
 
 
 def chart_label(label: str, *, max_len: int = 18) -> str:
@@ -164,6 +189,7 @@ def production_rows(analysis: SaveAnalysis) -> list[dict[str, Any]]:
                 "key": metric.production_key,
                 "status": metric.status,
                 "status_class": status_class(metric.status),
+                "status_basis": metric.status_basis,
                 "status_details": details,
                 "company": metric.company,
                 "object_id": metric.object_id,
@@ -218,6 +244,151 @@ def production_kpis(rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
         ("Empty + Burning", str(len(empty_negative)), "empty stock with negative net flow"),
         ("Top Flows", compact_resource_summary(exporters), f"largest consumers: {compact_resource_summary(consumers)}"),
     ]
+
+
+def sustainment_watchlist_rows(rows: list[dict[str, Any]], *, limit: int = 16) -> list[dict[str, Any]]:
+    risk_rows = [
+        row
+        for row in rows
+        if float(row["net_value"]) < 0
+        and row["runway_days"] is not None
+        and isfinite(float(row["runway_days"]))
+    ]
+    selected = sorted(
+        risk_rows,
+        key=lambda row: (
+            status_weight(str(row["status"])),
+            float(row["runway_days"]),
+            -abs(float(row["net_value"])),
+            str(row["place"]),
+            str(row["resource"]),
+        ),
+    )[:limit]
+
+    watch_rows: list[dict[str, Any]] = []
+    for row in selected:
+        details = [
+            f"Stock: {row['stock']}",
+            f"Intake: {row['intake']} per day",
+            f"Outtake: {row['outtake']} per day",
+            f"Net: {row['net']} per day",
+            f"Runway: {runway_years(row['runway_days'])}",
+            f"Basis: {row['status_basis']}",
+        ]
+        watch_rows.append(
+            {
+                "key": f"watch:{row['key']}",
+                "status": row["status"],
+                "status_class": row["status_class"],
+                "company": row["company"],
+                "place": row["place"],
+                "type": row["type"],
+                "resource": row["resource"],
+                "stock": row["stock"],
+                "net": row["net"],
+                "runway": row["runway"],
+                "read": watchlist_read(row),
+                "details": details,
+            }
+        )
+    return watch_rows
+
+
+def candidate_site_stock_rows(rows: list[dict[str, Any]], *, limit: int = 16) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, int, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row["company"]), int(row["object_id"]), str(row["place"]))
+        group = groups.setdefault(
+            key,
+            {
+                "key": f"candidate:{row['company']}:{row['object_id']}",
+                "company": row["company"],
+                "place": row["place"],
+                "type": row["type"],
+                "rows": 0,
+                "support_stock": 0.0,
+                "supply_stock": 0.0,
+                "supply_net": 0.0,
+                "fuel_stock": 0.0,
+                "construction_stock": 0.0,
+                "other_stock": 0.0,
+                "shortest_runway_days": None,
+                "worst_status": "Stable",
+                "resource_reads": [],
+            },
+        )
+        stock = float(row["stock_value"])
+        net = float(row["net_value"])
+        resource_key = str(row["resource_key"])
+        group["rows"] = int(group["rows"]) + 1
+        if resource_key == SUPPLY_RESOURCE_KEY:
+            group["supply_stock"] = float(group["supply_stock"]) + stock
+            group["supply_net"] = float(group["supply_net"]) + net
+            group["support_stock"] = float(group["support_stock"]) + stock
+        elif resource_key in FUEL_RESOURCE_KEYS:
+            group["fuel_stock"] = float(group["fuel_stock"]) + stock
+            group["support_stock"] = float(group["support_stock"]) + stock
+        elif resource_key in CONSTRUCTION_RESOURCE_KEYS:
+            group["construction_stock"] = float(group["construction_stock"]) + stock
+            group["support_stock"] = float(group["support_stock"]) + stock
+        else:
+            group["other_stock"] = float(group["other_stock"]) + stock
+
+        runway = row["runway_days"]
+        if runway is not None and isfinite(float(runway)):
+            current = group["shortest_runway_days"]
+            group["shortest_runway_days"] = float(runway) if current is None else min(float(current), float(runway))
+        if status_weight(str(row["status"])) < status_weight(str(group["worst_status"])):
+            group["worst_status"] = str(row["status"])
+        if row["status"] != "Stable" or resource_key in {SUPPLY_RESOURCE_KEY, *FUEL_RESOURCE_KEYS, *CONSTRUCTION_RESOURCE_KEYS}:
+            group["resource_reads"].append(f"{row['resource']}: {row['stock']} stock, {row['net']} net/day")
+
+    candidate_rows: list[dict[str, Any]] = []
+    for group in groups.values():
+        support_stock = float(group["support_stock"])
+        supply_net = float(group["supply_net"])
+        supply_read = "Supply stable" if supply_net >= 0 else "Supply burning down"
+        if float(group["supply_stock"]) <= 0:
+            supply_read = "No local Supply stock"
+        if support_stock <= 0 and float(group["other_stock"]) <= 0:
+            continue
+        details = [
+            f"Support stock: {fmt_num(support_stock)}t",
+            f"Supply: {fmt_num(group['supply_stock'])}t, {fmt_num(supply_net)}t/day net",
+            f"Compatible fuel: {fmt_num(group['fuel_stock'])}t",
+            f"Construction resources: {fmt_num(group['construction_stock'])}t",
+            f"Other stock: {fmt_num(group['other_stock'])}t",
+            f"Rows summarized: {group['rows']}",
+        ] + list(group["resource_reads"])[:8]
+        candidate_rows.append(
+            {
+                "key": group["key"],
+                "status": group["worst_status"],
+                "status_class": status_class(str(group["worst_status"])),
+                "company": group["company"],
+                "place": group["place"],
+                "type": group["type"],
+                "support_stock_value": support_stock,
+                "support_stock": f"{fmt_num(support_stock)}t",
+                "supply_stock": f"{fmt_num(group['supply_stock'])}t",
+                "supply_net": f"{fmt_num(supply_net)}t",
+                "fuel_stock": f"{fmt_num(group['fuel_stock'])}t",
+                "construction_stock": f"{fmt_num(group['construction_stock'])}t",
+                "shortest_runway_days": group["shortest_runway_days"],
+                "runway": runway_text(group["shortest_runway_days"]),
+                "read": supply_read,
+                "details": details,
+            }
+        )
+    return sorted(
+        candidate_rows,
+        key=lambda row: (
+            status_weight(str(row["status"])),
+            row["shortest_runway_days"] if row["shortest_runway_days"] is not None else float("inf"),
+            -float(row["support_stock_value"]),
+            str(row["place"]),
+        ),
+    )[:limit]
 
 
 def figure_layout(fig: go.Figure, *, height: int = 320) -> go.Figure:
@@ -522,6 +693,129 @@ def render_kpis(kpis: list[tuple[str, str, str]]) -> None:
                 ui.label(hint).classes("population-kpi-hint")
 
 
+def render_sustainment_watchlist(rows: list[dict[str, Any]]) -> None:
+    watch_rows = sustainment_watchlist_rows(rows)
+    with ui.element("div").classes("dashboard-card dashboard-card-wide sustainment-watchlist-card"):
+        with ui.row().classes("dashboard-title-row"):
+            with ui.column().classes("gap-0"):
+                ui.label("Sustainment Watchlist").classes("dashboard-card-title")
+                ui.label(
+                    "Exact resource/location rows with negative net flow, ranked by runway. Long-runway drawdowns are informational, not urgent."
+                ).classes("chart-control-summary")
+            render_info_tooltip(
+                "Sustainment Watchlist",
+                (
+                    "This board is disaggregated: no Other buckets and no hidden averaging.",
+                    "Critical: under half a year of stock. Urgent: under one year. Warning: under two years.",
+                    "Monitor means the row is depleting but has more than two years of stock, so it is a planning note rather than an immediate problem.",
+                ),
+            )
+        if not watch_rows:
+            ui.label("No negative-net resource runway detected in this save scope.").classes("empty-state-note")
+            return
+
+        table = ui.table(
+            columns=[
+                {"name": "status", "label": "Status", "field": "status", "sortable": True, "align": "left"},
+                {"name": "place", "label": "Location", "field": "place", "sortable": True, "align": "left"},
+                {"name": "resource", "label": "Resource", "field": "resource", "sortable": True, "align": "left"},
+                {"name": "stock", "label": "Stock", "field": "stock", "sortable": True, "align": "right"},
+                {"name": "net", "label": "Net/day", "field": "net", "sortable": True, "align": "right"},
+                {"name": "runway", "label": "Runway", "field": "runway", "sortable": True, "align": "right"},
+                {"name": "read", "label": "Planning Read", "field": "read", "sortable": True, "align": "left"},
+            ],
+            rows=watch_rows,
+            row_key="key",
+            pagination=8,
+        ).classes("w-full sustainment-watchlist-table")
+        table.props("flat bordered dense wrap-cells")
+        table.add_slot(
+            "body-cell-status",
+            r"""
+            <q-td :props="props">
+                <span :class="'readiness-chip ' + props.row.status_class">
+                    {{ props.row.status }}
+                    <q-icon name="info_outline" size="14px" class="q-ml-xs" />
+                    <q-tooltip class="return-fuel-tooltip" anchor="top middle" self="bottom middle" :offset="[0, 8]">
+                        <div class="return-fuel-tooltip-title">{{ props.row.place }} / {{ props.row.resource }}</div>
+                        <div
+                            v-for="line in props.row.details"
+                            :key="line"
+                            class="return-fuel-tooltip-line"
+                        >
+                            {{ line }}
+                        </div>
+                    </q-tooltip>
+                </span>
+            </q-td>
+            """,
+        )
+
+
+def render_candidate_site_stock_summary(rows: list[dict[str, Any]]) -> None:
+    candidate_rows = candidate_site_stock_rows(rows)
+    with ui.element("div").classes("dashboard-card dashboard-card-wide sustainment-watchlist-card"):
+        with ui.row().classes("dashboard-title-row"):
+            with ui.column().classes("gap-0"):
+                ui.label("Candidate Site Stock Summary").classes("dashboard-card-title")
+                ui.label(
+                    "Location-level stock evidence for future colony prep: Supply, fuel, construction resources, and shortest runway."
+                ).classes("chart-control-summary")
+            render_info_tooltip(
+                "Candidate Site Stock Summary",
+                (
+                    "This is evidence, not a demand model.",
+                    "Rows group company-local stock and flow by location so a future Prep Watchlist can explain what is already present.",
+                    "Support stock includes Supply, compatible fuel, and common construction resources.",
+                ),
+            )
+        if not candidate_rows:
+            ui.label("No local stock evidence was detected for candidate site summaries in this save scope.").classes(
+                "empty-state-note"
+            )
+            return
+
+        table = ui.table(
+            columns=[
+                {"name": "status", "label": "Status", "field": "status", "sortable": True, "align": "left"},
+                {"name": "place", "label": "Location", "field": "place", "sortable": True, "align": "left"},
+                {"name": "type", "label": "Type", "field": "type", "sortable": True, "align": "left"},
+                {"name": "support_stock", "label": "Support Stock", "field": "support_stock", "sortable": True, "align": "right"},
+                {"name": "supply_stock", "label": "Supply", "field": "supply_stock", "sortable": True, "align": "right"},
+                {"name": "supply_net", "label": "Supply Net/day", "field": "supply_net", "sortable": True, "align": "right"},
+                {"name": "fuel_stock", "label": "Fuel", "field": "fuel_stock", "sortable": True, "align": "right"},
+                {"name": "construction_stock", "label": "Construction", "field": "construction_stock", "sortable": True, "align": "right"},
+                {"name": "runway", "label": "Shortest Runway", "field": "runway", "sortable": True, "align": "right"},
+                {"name": "read", "label": "Planning Read", "field": "read", "sortable": True, "align": "left"},
+            ],
+            rows=candidate_rows,
+            row_key="key",
+            pagination=8,
+        ).classes("w-full sustainment-watchlist-table")
+        table.props("flat bordered dense wrap-cells")
+        table.add_slot(
+            "body-cell-status",
+            r"""
+            <q-td :props="props">
+                <span :class="'readiness-chip ' + props.row.status_class">
+                    {{ props.row.status }}
+                    <q-icon name="info_outline" size="14px" class="q-ml-xs" />
+                    <q-tooltip class="return-fuel-tooltip" anchor="top middle" self="bottom middle" :offset="[0, 8]">
+                        <div class="return-fuel-tooltip-title">{{ props.row.place }}</div>
+                        <div
+                            v-for="line in props.row.details"
+                            :key="line"
+                            class="return-fuel-tooltip-line"
+                        >
+                            {{ line }}
+                        </div>
+                    </q-tooltip>
+                </span>
+            </q-td>
+            """,
+        )
+
+
 def render_chart_card(title: str, fig: go.Figure, *, wide: bool = False) -> None:
     fig.update_layout(title=None)
     classes = "dashboard-card viz-card viz-card-wide" if wide else "dashboard-card viz-card"
@@ -612,6 +906,8 @@ def render_production_dashboard(analysis: SaveAnalysis, container: ui.element) -
                     "text-sm text-slate-600"
                 )
         render_kpis(production_kpis(rows))
+        render_sustainment_watchlist(rows)
+        render_candidate_site_stock_summary(rows)
         render_heatmap_section(rows)
         with ui.row().classes("dashboard-grid"):
             render_chart_card("Runway Focus", runway_focus_figure(rows))

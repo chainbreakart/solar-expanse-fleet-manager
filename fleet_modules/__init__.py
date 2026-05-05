@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .attention_board import MODULE as ATTENTION_BOARD
 from .body_board import MODULE as BODY_BOARD
 from .fleet_board import MODULE as FLEET_BOARD
 from .people_transit import MODULE as PEOPLE_TRANSIT
@@ -8,6 +9,7 @@ from .route_board import MODULE as ROUTE_BOARD
 from .shared import TableModule
 
 MODULES: tuple[TableModule, ...] = (
+    ATTENTION_BOARD,
     FLEET_BOARD,
     ROUTE_BOARD,
     BODY_BOARD,

@@ -1,0 +1,35 @@
+research_id,title,family,sequence,work_hours,work_hour_offset,unlock_targets,unlock_display_names,notes,source_method
+research_agriculture_1,Space Farming,Agriculture,1,1200000.0,328,build_farm,HYDROPONIC FARM,,raw_bytes
+research_agriculture_2,Regolith Adaptation,Agriculture,2,2160000.0,328,build_farm,HYDROPONIC FARM,,raw_bytes
+research_agriculture_3,Hydroponics,Agriculture,3,3000000.0,328,build_farm,HYDROPONIC FARM,,raw_bytes
+research_agriculture_4,Radiotrophic Fungi,Agriculture,4,3000000.0,328,build_outpost; build_habitat,OUTPOST; HABITAT,,raw_bytes
+research_agriculture_5,Low-G GMO,Agriculture,5,4080000.0,328,build_farm,HYDROPONIC FARM,,raw_bytes
+research_biotech_1,Bioreactors,Biotech,1,1200000.0,320,build_farm,HYDROPONIC FARM,,raw_bytes
+research_biotech_2,Knallgas Bacteria Farms,Biotech,2,2160000.0,320,build_farm,HYDROPONIC FARM,,raw_bytes
+research_biotech_3,Closed-cycle Algae,Biotech,3,3000000.0,320,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_biotech_4,Genetic Engineering,Biotech,4,2160000.0,320,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_biotech_5,Biological Machines,Biotech,5,3000000.0,320,build_farm,HYDROPONIC FARM,,raw_bytes
+research_lifesup_1,Crewed Flight,Lifesup,1,1200000.0,320,module_crew_compartment,CREW COMPARTMENT TYPE-S,,raw_bytes
+research_lifesup_2,Improved Capsule Construction,Lifesup,2,2160000.0,320,module_crew_compartment; module_crew_medium; module_crew_large,CREW COMPARTMENT TYPE-S; CREW COMPARTMENT TYPE-M; CREW COMPARTMENT TYPE-L,,raw_bytes
+research_lifesup_4,STO Transports,Lifesup,4,3000000.0,320,module_crew_large,CREW COMPARTMENT TYPE-L,,raw_bytes
+research_lifesup_5,Improved Ration Packing,Lifesup,5,2160000.0,320,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_lifesup_6,Improved Atmosphere Recycling,Lifesup,6,3000000.0,320,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_lifesup_8,Spin-Grav Habitation,Lifesup,8,3000000.0,320,build_space_0gcolony,ROTATING HABITAT,,raw_bytes
+research_lifesup_9,Planetary Habitats,Lifesup,9,1200000.0,320,build_outpost; build_habitat,OUTPOST; HABITAT,,raw_bytes
+research_lifesup_10,Regolith Shielding,Lifesup,10,3000000.0,320,build_outpost; build_habitat; build_habitatdome; build_habitatcity,OUTPOST; HABITAT; DOME HABITAT; CITY,,raw_bytes
+research_lifesup_11,Colony Construction,Lifesup,11,2160000.0,320,build_habitatunder,UNDERGROUND HABITAT,,raw_bytes
+research_lifesup_12,On-Site 3D Printing,Lifesup,12,3000000.0,320,build_habitatdome; build_habitatcity,DOME HABITAT; CITY,,raw_bytes
+research_lifesup_13,Permanent Orbital Presence,Lifesup,13,4080000.0,320,build_space_construction; module_space_construction_cargo; module_0ghabitat; build_space_fuel,ORBITAL CONSTRUCTION; ORBITAL CONSTRUCTION; module_0ghabitat; ORBITAL FUEL REFINERY,,raw_bytes
+research_lifesup_14,In-Orbit Production,Lifesup,14,4800000.0,320,build_space_drydock; build_space_0gdome; build_space_0gcity,ORBITAL SHIPYARD; ROTATING STATION; CITY STATION,,raw_bytes
+research_lifesup_15,Artificial Hibernation,Lifesup,15,3000000.0,332,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_lifesup_16,Suspended Animation,Lifesup,16,4080000.0,332,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_robotics_crew1,Exoskeletons,Robotics Crew,1,4080000.0,340,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_robotics_crew2,Expert Systems,Robotics Crew,2,4800000.0,340,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_robotics_crew3,Cybernetics,Robotics Crew,3,4800000.0,352,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_terraforming_1,Mars Bacteria,Terraforming,1,27648000.0,316,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_terraforming_magnet1,Artificial Magnetosphere,Terraforming,1,,,build_terraform_magnet; build_terraform_space_magnet,PLANETARY MAGNETOSPHERE GENERATOR; ORBITAL MAGNETOSPHERE GENERATOR,,raw_bytes
+research_terraforming_2,Carbon Release,Terraforming,2,1200000.0,328,build_power_carbon; build_co2_splitting; build_power_hydrogen,CARBON POWER PLANT; CO2 ELECTROLYSIS; HYDROGEN POWER PLANT,,raw_bytes
+research_terraforming_3,Photosynthetic Microbes,Terraforming,3,27648000.0,316,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_terraforming_4,Albedo Manipulation,Terraforming,4,27648000.0,316,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_terraforming_5,Comet Redirection,Terraforming,5,55296000.0,316,,,No direct build/module unlock string found in raw research data.,raw_bytes
+research_terraforming_6,Stellar Mirror,Terraforming,6,2160000.0,328,build_terraform_space_mirror; build_terraform_space_shade,ORBITAL MIRROR; ORBITAL SHADE,,raw_bytes

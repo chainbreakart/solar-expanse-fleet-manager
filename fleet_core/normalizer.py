@@ -1,15 +1,75 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .fact_model import (
+    AttentionRow,
+    BodyMetric,
+    CapacityMetrics,
+    CargoFact,
+    CargoFlightMetric,
+    CraftFact,
+    CrewMetric,
+    FleetRow,
+    MissionFact,
+    ObjectFact,
+    PopulationDestinationMetric,
+    PopulationFlightMetric,
+    PopulationPlaceMetric,
+    PopulationReadinessMetric,
+    ProductionBalanceMetric,
+    ResourceStockFact,
+    ReturnFuelMetric,
+    RouteMetric,
+    TechAdjustedValue,
+    TechModifierFact,
+    TechReferenceCatalog,
+    TechReferenceModifier,
+    TechReferenceRow,
+    TechUnlockFact,
+    TimingMetrics,
+)
+from .attention import (
+    build_attention_rows,
+    capacity_attention_rows,
+    fuel_attention_rows,
+    population_attention_rows,
+    save_data_attention_rows,
+)
 from .odin_save_parser import FStringRef
+from .production_facts import (
+    build_production_balance_metrics,
+    build_resource_stock_facts,
+    production_runway_days,
+    production_status,
+)
+from .return_fuel_facts import (
+    build_return_fuel_metrics,
+    child_orbit_lookup,
+    compatible_fuel_cargo,
+    expected_onboard_fuel_for_return,
+    return_fuel_warning,
+    return_stock_objects,
+    reverse_requirement_for,
+    stock_lookup,
+)
+from .technology_adjustments import (
+    life_support_consumption_adjustment,
+    spacecraft_percent_capacity_adjustment,
+    transport_capacity_adjustment,
+    unlocked_reference_modifiers,
+)
 
 DOTNET_EPOCH = datetime(1, 1, 1)
 FILETIME_EPOCH = datetime(1601, 1, 1)
+SPACECRAFT_HEAD_NAME_RE = re.compile(r"^Spacecraft\d+(.+)$")
+CAPACITY_SEMANTICS_NORMAL = "normal"
+CAPACITY_SEMANTICS_ORBITAL_PAYLOAD_CONTAINER = "launch_limited_upward_unlimited_downward"
+ORBITAL_PAYLOAD_CONTAINER_TYPES = {"spacecraft_capsule"}
 
 SPACECRAFT_TYPE_HULL_CANDIDATES: dict[str, tuple[str, ...]] = {
     "spacecraft_chem_small": ("Iris",),
@@ -49,360 +109,6 @@ HUMAN_RESOURCE_KEY = "id_resource_human"
 SURFACE_LIFE_SUPPORT_MULTIPLIER = 5.0
 CREW_IN_HABITATS_LIFE_SUPPORT_MULTIPLIER = 0.5
 SUPPLY_TO_LIFE_SUPPORT_MULTIPLIER = 365.0
-PRODUCTION_RUNWAY_WARNING_DAYS = 730
-PRODUCTION_RUNWAY_URGENT_DAYS = 365
-PRODUCTION_RUNWAY_CRITICAL_DAYS = 183
-
-
-@dataclass(frozen=True)
-class FleetRow:
-    company: str
-    craft_id: int
-    craft_name: str
-    craft_type: str
-    current_object: str
-    status: str
-    route: str
-    departure: str
-    arrival: str
-    cargo: str
-    fuel: str
-    mission_timing: str
-    fuel_plan: str
-    capacity: str
-    transfer: str
-    warnings: str
-    mission_id: str
-
-
-@dataclass(frozen=True)
-class TimingMetrics:
-    duration_days: float | None
-    percent_complete: float | None
-    days_until_departure: float | None
-    days_until_arrival: float | None
-    days_since_stale_arrival: float | None
-
-
-@dataclass(frozen=True)
-class CapacityMetrics:
-    cargo_mass_used: float
-    cargo_capacity: float | None
-    cargo_free: float | None
-    cargo_percent: float | None
-    fuel_mass: float
-    fuel_capacity: float | None
-    fuel_free: float | None
-    fuel_tank_percent: float | None
-    planned_total_fuel: float | None
-    optimal_fuel: float | None
-    saved_residual_or_onboard_fuel: float
-    life_support_loaded: float
-    capacity_source: str
-
-
-@dataclass(frozen=True)
-class MissionFact:
-    company: str
-    mission_key: str
-    mission_id: str
-    mission_type: str
-    raw: dict[str, Any]
-    craft_ids: tuple[int, ...]
-    start_id: int | None
-    target_id: int | None
-    route: str
-    route_type: str
-    status: str
-    departure: str
-    arrival: str
-    departure_dt: datetime | None
-    arrival_dt: datetime | None
-    timing: TimingMetrics
-    cargo: str
-    fuel: str
-    cargo_mass: float
-    fuel_mass: float
-    fuel_resource_key: str
-    planned_total_fuel: float | None
-    optimal_fuel: float | None
-    transfer: str
-
-
-@dataclass(frozen=True)
-class CargoFact:
-    company: str
-    cargo_key: str
-    source_type: str
-    source_key: str
-    mission_key: str
-    mission_id: str
-    mission_type: str
-    mission_status: str
-    craft_ids: tuple[int, ...]
-    object_id: int | None
-    route: str
-    departure: str
-    arrival: str
-    departure_dt: datetime | None
-    arrival_dt: datetime | None
-    list_name: str
-    list_label: str
-    row_index: int
-    cargo_kind: str
-    resource_key: str
-    module_key: str
-    display_name: str
-    mass: float
-    people: int
-    life_support: float
-    is_crew_module: bool
-    raw: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class CrewMetric:
-    crew_key: str
-    company: str
-    status: str
-    mission_key: str
-    mission_id: str
-    craft_id: int
-    craft_name: str
-    craft_type: str
-    route: str
-    departure: str
-    arrival: str
-    timing: str
-    cargo_item: str
-    compartment_type: str
-    module_key: str
-    people: int
-    reference_seats: int | None
-    empty_seats: int | None
-    state: str
-    life_support_carriage: float
-    row_life_support: float
-    location: str
-    warnings: str
-    source_cargo_key: str
-
-
-@dataclass(frozen=True)
-class ResourceStockFact:
-    company: str
-    object_id: int
-    object_label: str
-    resource_key: str
-    resource_name: str
-    value: float
-    intake: float
-    outtake: float
-    source: str
-
-
-@dataclass(frozen=True)
-class ProductionBalanceMetric:
-    production_key: str
-    company: str
-    object_id: int
-    object_label: str
-    object_type: str
-    resource_key: str
-    resource_name: str
-    stock: float
-    intake_per_day: float
-    outtake_per_day: float
-    net_per_day: float
-    runway_days: float | None
-    status: str
-    status_basis: str
-    source: str
-
-
-@dataclass(frozen=True)
-class ObjectFact:
-    object_id: int
-    display_name: str
-    label: str
-    object_type: str
-    object_type_id: int | None
-    parent_id: int | None
-    parent_name: str
-    parent_label: str
-    relationship: str
-    is_orbit: bool
-    is_surface: bool
-    can_mine: bool | None
-    path_id: int | None
-    owner_companies: tuple[str, ...]
-    present_craft: int
-    inbound_missions: int
-    outbound_missions: int
-    next_arrival: str
-    raw: dict[str, Any] | None
-
-
-@dataclass(frozen=True)
-class CraftFact:
-    company: str
-    craft_id: int
-    craft_name: str
-    spacecraft_type_key: str
-    spacecraft_type: str
-    current_object_id: int | None
-    current_object: str
-    true_object_id: int | None
-    true_object: str
-    status: str
-    has_active_assignment: bool
-    active_assignment_key: str
-    mission_id: str
-    mission_type: str
-    route: str
-    route_type: str
-    departure: str
-    arrival: str
-    departure_dt: datetime | None
-    arrival_dt: datetime | None
-    timing: TimingMetrics
-    mission_timing: str
-    cargo: str
-    fuel: str
-    cargo_mass: float
-    fuel_mass: float
-    fuel_resource_key: str
-    planned_total_fuel: float | None
-    optimal_fuel: float | None
-    capacity_metrics: CapacityMetrics
-    cargo_capacity: float | None
-    fuel_capacity: float | None
-    capacity_source: str
-    fuel_type_name: str
-    propulsion_class: str
-    surface_capable: bool
-    orbit_only: bool
-    continuous_burn_capable: bool
-    construction_mode: str
-    category: str
-    is_launchcraft: bool
-    launchcraft_status: str
-    transfer: str
-    fuel_plan: str
-    capacity: str
-    warnings: str
-    raw: dict[str, Any]
-    mission_raw: dict[str, Any] | None
-
-
-@dataclass(frozen=True)
-class RouteMetric:
-    route_key: str
-    route: str
-    route_type: str
-    total_craft_count: int
-    active_craft_count: int
-    planned_craft_count: int
-    cargo_tons_in_transit: float
-    people_in_transit: int
-    next_departure: str
-    next_arrival: str
-    attention_count: int
-    companies: tuple[str, ...]
-    status_counts: tuple[tuple[str, int], ...]
-    assigned_craft: tuple[str, ...]
-    cargo_summaries: tuple[str, ...]
-    fuel_plan_summaries: tuple[str, ...]
-    capacity_summaries: tuple[str, ...]
-    transfers: tuple[str, ...]
-    warnings: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class BodyMetric:
-    object_id: int
-    body: str
-    object_type: str
-    parent: str
-    relationship: str
-    companies: tuple[str, ...]
-    craft_present: int
-    idle_craft: int
-    active_inbound_craft: int
-    planned_inbound_craft: int
-    outbound_craft: int
-    inbound_cargo: tuple[tuple[str, float], ...]
-    inbound_people: int
-    outbound_people: int
-    next_arrival: str
-    craft_here: tuple[str, ...]
-    inbound_routes: tuple[str, ...]
-    outbound_routes: tuple[str, ...]
-    warnings: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class PopulationReadinessMetric:
-    readiness_key: str
-    company: str
-    mission_key: str
-    destination_id: int | None
-    destination: str
-    inbound_people: int
-    current_population: float
-    projected_population: float
-    completed_housing: float
-    queued_housing: float
-    arriving_housing: float
-    housing_gap: float
-    supply_stock: float
-    supply_intake_per_day: float
-    supply_outtake_per_day: float
-    effective_supply_modifier: float
-    supply_modifier_basis: str
-    added_supply_demand_per_day: float
-    projected_supply_outtake_per_day: float
-    projected_supply_net_per_day: float
-    supply_runway_days: float | None
-    severity: str
-    status: str
-    message: str
-    details: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class ReturnFuelMetric:
-    return_key: str
-    company: str
-    craft_id: int
-    craft_name: str
-    craft_type: str
-    status: str
-    route: str
-    departure: str
-    arrival: str
-    destination_id: int | None
-    destination: str
-    immediate_stock_object_id: int | None
-    immediate_stock_object: str
-    surface_stock_object_id: int | None
-    surface_stock_object: str
-    fuel_resource_key: str
-    fuel_type: str
-    estimated_return_requirement: float | None
-    return_requirement_confidence: str
-    requirement_basis: str
-    expected_onboard_fuel_at_arrival: float
-    expected_onboard_fuel_basis: str
-    compatible_fuel_cargo: float
-    destination_immediate_stock: float
-    destination_surface_stock: float
-    lift_needed_surface_fuel: float
-    immediate_return_margin: float | None
-    deferred_return_margin: float | None
-    warning: str
-
-
 def list_content(value: Any) -> list[Any]:
     if isinstance(value, dict):
         content = value.get("$rcontent")
@@ -593,10 +299,13 @@ def load_spacecraft_stats(repo_root: Path) -> dict[str, dict[str, Any]]:
                 except ValueError:
                     return None
 
+            asset_name = row.get("asset_name") or game_id
+            head_name = row.get("head_name") or ""
             stats[game_id] = {
-                "asset_name": row.get("asset_name") or game_id,
+                "asset_name": asset_name,
                 "category": row.get("category") or "",
-                "head_name": row.get("head_name") or "",
+                "head_name": head_name,
+                "hull_candidates": spacecraft_hull_candidates(game_id, asset_name, head_name),
                 "cargo_capacity_t": float_field("cargo_capacity_t"),
                 "fuel_capacity_t": float_field("fuel_capacity_t"),
                 "propulsion_class": row.get("propulsion_class") or "",
@@ -606,8 +315,33 @@ def load_spacecraft_stats(repo_root: Path) -> dict[str, dict[str, Any]]:
                 "orbit_only": (row.get("orbit_only") or "").lower() == "true",
                 "construction_mode": row.get("construction_mode") or "",
                 "continuous_burn_capable": (row.get("continuous_burn_capable") or "").lower() == "true",
+                "capacity_semantics": capacity_semantics_for_spacecraft(game_id),
             }
     return stats
+
+
+def spacecraft_hull_candidates(game_id: str, asset_name: str, head_name: str) -> tuple[str, ...]:
+    candidates: list[str] = []
+
+    def add(value: str) -> None:
+        clean = value.strip()
+        if clean and clean not in candidates:
+            candidates.append(clean)
+            if not clean.lower().endswith("hull"):
+                candidates.append(f"{clean} Hull")
+
+    for value in (asset_name, head_name, game_id):
+        add(value)
+    head_match = SPACECRAFT_HEAD_NAME_RE.match(head_name)
+    if head_match:
+        add(head_match.group(1))
+    return tuple(candidates)
+
+
+def capacity_semantics_for_spacecraft(game_id: str) -> str:
+    if game_id in ORBITAL_PAYLOAD_CONTAINER_TYPES:
+        return CAPACITY_SEMANTICS_ORBITAL_PAYLOAD_CONTAINER
+    return CAPACITY_SEMANTICS_NORMAL
 
 
 def load_object_reference(repo_root: Path) -> dict[int, dict[str, str]]:
@@ -889,6 +623,44 @@ def classify_cargo_item(item: dict[str, Any], crew_module_keys: set[str] | None 
     return "unknown"
 
 
+FUEL_RESOURCE_KEYS = {"id_resource_fuel", "id_resource_noblegas", "id_resource_hydrogen", "id_resource_hel3"}
+CONSTRUCTION_RESOURCE_KEYS = {
+    "id_resource_alloy",
+    "id_resource_chips",
+    "id_resource_glass",
+    "id_resource_metal",
+    "id_resource_plastic",
+    "id_resource_raremetal",
+    "id_resource_silicon",
+    "id_resource_steel",
+}
+HABITAT_MODULE_TOKENS = ("habitat", "0gcity", "outpost", "crew")
+CONSTRUCTION_MODULE_TOKENS = ("construction", "build_", "mine", "refinery", "factory", "plant", "extractor", "power")
+
+
+def colonization_support_classification(
+    *,
+    cargo_kind: str,
+    resource_key: str,
+    module_key: str,
+    display_name: str,
+) -> tuple[str, str]:
+    """Classify cargo that can support a new or growing colony."""
+    name = display_name.lower()
+    module_text = module_key.lower()
+    if resource_key == "id_resource_supply":
+        return "Supply", "consumable colony sustainment stock"
+    if cargo_kind == "crew_module" or any(token in module_text or token in name for token in HABITAT_MODULE_TOKENS):
+        return "Habitat / crew module", "habitat or crew-capable module"
+    if cargo_kind == "fuel" or resource_key in FUEL_RESOURCE_KEYS:
+        return "Compatible fuel", "fuel resource that may support route continuation or local operations"
+    if resource_key in CONSTRUCTION_RESOURCE_KEYS:
+        return "Construction resource", "resource commonly consumed by early facilities or habitat builds"
+    if module_key and any(token in module_text or token in name for token in CONSTRUCTION_MODULE_TOKENS):
+        return "Outpost / build module", "module or buildable that can seed local construction or production"
+    return "", ""
+
+
 def cargo_facts_from_cargo_all(
     cargo_all: Any,
     *,
@@ -925,6 +697,13 @@ def cargo_facts_from_cargo_all(
             module_key = game_key(item.get("moduleData"))
             cargo_kind = classify_cargo_item(item, crew_module_keys)
             people = cargo_people_count(item, cargo_kind, mass)
+            display_name = cargo_item_display_name(item, resources, buildables)
+            support_category, support_reason = colonization_support_classification(
+                cargo_kind=cargo_kind,
+                resource_key=resource_key,
+                module_key=module_key,
+                display_name=display_name,
+            )
             facts.append(
                 CargoFact(
                     company=company_id,
@@ -948,11 +727,13 @@ def cargo_facts_from_cargo_all(
                     cargo_kind=cargo_kind,
                     resource_key=resource_key,
                     module_key=module_key,
-                    display_name=cargo_item_display_name(item, resources, buildables),
+                    display_name=display_name,
                     mass=mass,
                     people=people,
                     life_support=as_float(item.get("lifeSupportValue")) or 0.0,
                     is_crew_module=cargo_kind == "crew_module",
+                    colonization_support_category=support_category,
+                    colonization_support_reason=support_reason,
                     raw=item,
                 )
             )
@@ -963,6 +744,13 @@ def cargo_facts_from_cargo_all(
         fuel_key = game_key(fuel.get("resourceType"))
         life_support = as_float(fuel.get("lifeSupportValue")) or 0.0
         if fuel_key or fuel_amount:
+            display_name = resources.get(fuel_key) or friendly_key(fuel_key) or "Fuel"
+            support_category, support_reason = colonization_support_classification(
+                cargo_kind="fuel",
+                resource_key=fuel_key,
+                module_key="",
+                display_name=display_name,
+            )
             facts.append(
                 CargoFact(
                     company=company_id,
@@ -986,11 +774,13 @@ def cargo_facts_from_cargo_all(
                     cargo_kind="fuel",
                     resource_key=fuel_key,
                     module_key="",
-                    display_name=resources.get(fuel_key) or friendly_key(fuel_key) or "Fuel",
+                    display_name=display_name,
                     mass=fuel_amount,
                     people=0,
                     life_support=life_support,
                     is_crew_module=False,
+                    colonization_support_category=support_category,
+                    colonization_support_reason=support_reason,
                     raw=fuel,
                 )
             )
@@ -1023,6 +813,8 @@ def cargo_facts_from_cargo_all(
                     people=0,
                     life_support=life_support,
                     is_crew_module=False,
+                    colonization_support_category="Supply",
+                    colonization_support_reason="mission life-support carriage",
                     raw=fuel,
                 )
             )
@@ -1094,20 +886,25 @@ def build_capacity_metrics(
     *,
     cargo_mass_used: float,
     cargo_capacity: float | None,
+    raw_cargo_capacity: float | None,
     fuel_mass: float,
     fuel_capacity: float | None,
+    raw_fuel_capacity: float | None,
     planned_total_fuel: float | None,
     optimal_fuel: float | None,
     life_support_loaded_value: float,
     capacity_source: str,
+    tech_adjustment: TechAdjustedValue | None = None,
 ) -> CapacityMetrics:
     return CapacityMetrics(
         cargo_mass_used=cargo_mass_used,
         cargo_capacity=cargo_capacity,
+        raw_cargo_capacity=raw_cargo_capacity if raw_cargo_capacity is not None else cargo_capacity,
         cargo_free=metric_free(cargo_capacity, cargo_mass_used),
         cargo_percent=metric_percent(cargo_mass_used, cargo_capacity),
         fuel_mass=fuel_mass,
         fuel_capacity=fuel_capacity,
+        raw_fuel_capacity=raw_fuel_capacity if raw_fuel_capacity is not None else fuel_capacity,
         fuel_free=metric_free(fuel_capacity, fuel_mass),
         fuel_tank_percent=metric_percent(fuel_mass, fuel_capacity),
         planned_total_fuel=planned_total_fuel,
@@ -1115,6 +912,7 @@ def build_capacity_metrics(
         saved_residual_or_onboard_fuel=fuel_mass,
         life_support_loaded=life_support_loaded_value,
         capacity_source=capacity_source,
+        tech_adjustment=tech_adjustment,
     )
 
 
@@ -1212,6 +1010,13 @@ def capacity_summary(used: float, capacity: float | None) -> str:
     return f"{fmt_num(used)} / {fmt_num(capacity)}t ({pct(used, capacity)})"
 
 
+def capacity_summary_for_semantics(used: float, capacity: float | None, semantics: str) -> str:
+    if semantics == CAPACITY_SEMANTICS_ORBITAL_PAYLOAD_CONTAINER:
+        nominal = f"nominal {fmt_num(capacity)}t" if isinstance(capacity, (int, float)) and capacity > 0 else "nominal unknown"
+        return f"{fmt_num(used)}t loaded; launch-limited upward, orbit-to-surface unlimited ({nominal})"
+    return capacity_summary(used, capacity)
+
+
 def transfer_summary(mission: dict[str, Any], stats: dict[str, Any]) -> str:
     pieces: list[str] = []
     if mission:
@@ -1247,10 +1052,13 @@ def movement_warnings(
     status: str,
     mission_cargo_mass: float,
     capacity: float | None,
+    capacity_semantics: str = CAPACITY_SEMANTICS_NORMAL,
 ) -> str:
     warnings: list[str] = []
     if status in {"Arrived", "Canceled"}:
         return ""
+    if capacity_semantics == CAPACITY_SEMANTICS_ORBITAL_PAYLOAD_CONTAINER:
+        warnings.append("payload container: launch-limited upward; orbit-to-surface delivery unlimited")
     return "; ".join(warnings)
 
 
@@ -1486,13 +1294,13 @@ def live_spacecraft_stats(
     fallback_stats: dict[str, Any],
     company_hulls: dict[str, dict[str, dict[str, float | None]]],
 ) -> dict[str, Any]:
-    candidates: list[str] = list(SPACECRAFT_TYPE_HULL_CANDIDATES.get(craft_type_key, ()))
-    asset_name = str(fallback_stats.get("asset_name") or "")
-    if asset_name:
-        candidates.extend([asset_name, f"{asset_name} Hull"])
-    head_name = str(fallback_stats.get("head_name") or "")
-    if head_name:
-        candidates.append(head_name)
+    candidates: list[str] = []
+    for candidate in fallback_stats.get("hull_candidates", ()):
+        if isinstance(candidate, str) and candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in SPACECRAFT_TYPE_HULL_CANDIDATES.get(craft_type_key, ()):
+        if candidate not in candidates:
+            candidates.append(candidate)
 
     hulls = company_hulls.get(company_id, {})
     for candidate in candidates:
@@ -1513,6 +1321,8 @@ def build_craft_facts(
     repo_root: Path,
     mission_facts: list[MissionFact] | None = None,
     included_companies: set[str] | None = None,
+    technology_reference: TechReferenceCatalog | None = None,
+    tech_unlock_facts: list[TechUnlockFact] | None = None,
 ) -> list[CraftFact]:
     buildables, resources = load_reference_maps(repo_root)
     spacecraft_stats = load_spacecraft_stats(repo_root)
@@ -1546,18 +1356,35 @@ def build_craft_facts(
             active_fuel_mass = fuel_mass(active_cargo_all)
             cargo_capacity = stats.get("cargo_capacity_t") if isinstance(stats.get("cargo_capacity_t"), (int, float)) else None
             fuel_capacity = stats.get("fuel_capacity_t") if isinstance(stats.get("fuel_capacity_t"), (int, float)) else None
+            raw_cargo_capacity = cargo_capacity
+            raw_fuel_capacity = fuel_capacity
             planned_total_fuel = mission.planned_total_fuel if mission else None
             optimal_fuel = mission.optimal_fuel if mission else None
             capacity_source = str(stats.get("capacity_source") or "")
+            unlocked_modifiers = unlocked_reference_modifiers(technology_reference, tech_unlock_facts, company_id)
+            cargo_capacity, cargo_adjustment = spacecraft_percent_capacity_adjustment(
+                unlocked_modifiers,
+                target_key=craft_type_key,
+                modifier_type="component_cargo_capacity_percent",
+                raw_value=raw_cargo_capacity,
+                source=capacity_source,
+            )
+            fuel_adjustment = None
+            capacity_adjustment = cargo_adjustment or fuel_adjustment
+            if capacity_adjustment:
+                capacity_source = f"{capacity_source}+tech_reference"
             capacity_metrics = build_capacity_metrics(
                 cargo_mass_used=active_cargo_mass,
                 cargo_capacity=cargo_capacity,
+                raw_cargo_capacity=raw_cargo_capacity,
                 fuel_mass=active_fuel_mass,
                 fuel_capacity=fuel_capacity,
+                raw_fuel_capacity=raw_fuel_capacity,
                 planned_total_fuel=planned_total_fuel,
                 optimal_fuel=optimal_fuel,
                 life_support_loaded_value=life_support_loaded(active_cargo_all),
                 capacity_source=capacity_source,
+                tech_adjustment=capacity_adjustment,
             )
             status = mission.status if mission else "Idle"
             active_assignment = bool(mission and mission.status not in {"Arrived", "Canceled"})
@@ -1565,6 +1392,7 @@ def build_craft_facts(
             current_object_id = craft.get("idObjectInfo") if isinstance(craft.get("idObjectInfo"), int) else None
             true_object_id = craft.get("idObjectTruly") if isinstance(craft.get("idObjectTruly"), int) else None
             category = str(stats.get("category") or "")
+            capacity_semantics = str(stats.get("capacity_semantics") or CAPACITY_SEMANTICS_NORMAL)
             launch_status = launchcraft_status(stats)
             fuel_resource = (
                 mission.fuel_resource_key
@@ -1614,14 +1442,20 @@ def build_craft_facts(
                     construction_mode=str(stats.get("construction_mode") or ""),
                     category=category,
                     is_launchcraft=category == "Launchcraft",
+                    capacity_semantics=capacity_semantics,
                     launchcraft_status=launch_status,
                     transfer=transfer,
                     fuel_plan=fuel_plan_summary(capacity_metrics.planned_total_fuel, capacity_metrics.optimal_fuel, capacity_metrics.saved_residual_or_onboard_fuel, capacity_metrics.fuel_capacity, status),
-                    capacity=capacity_summary(capacity_metrics.cargo_mass_used, capacity_metrics.cargo_capacity),
+                    capacity=capacity_summary_for_semantics(
+                        capacity_metrics.cargo_mass_used,
+                        capacity_metrics.cargo_capacity,
+                        capacity_semantics,
+                    ),
                     warnings=movement_warnings(
                         status=status,
                         mission_cargo_mass=active_cargo_mass,
                         capacity=cargo_capacity,
+                        capacity_semantics=capacity_semantics,
                     ),
                     raw=craft,
                     mission_raw=mission_raw if mission_raw else None,
@@ -1879,115 +1713,6 @@ def build_body_metrics(
     return sorted(metrics, key=lambda item: item.body)
 
 
-def build_resource_stock_facts(
-    save: dict[str, Any],
-    object_names: dict[int, str],
-    resources: dict[str, str],
-    included_companies: set[str] | None = None,
-) -> list[ResourceStockFact]:
-    facts: list[ResourceStockFact] = []
-    for row in list_content(save.get("objectInfoDatas")):
-        if not isinstance(row, dict):
-            continue
-        company = str(id_value(row.get("companyId"), ""))
-        if included_companies is not None and company not in included_companies:
-            continue
-        object_id = row.get("id") if isinstance(row.get("id"), int) else None
-        if object_id is None:
-            continue
-        for resource in list_content(row.get("listRowResourcesData")):
-            if not isinstance(resource, dict):
-                continue
-            resource_key = game_key(resource.get("resourceTypeIDSave"))
-            if not resource_key:
-                continue
-            value = as_float(resource.get("value")) or 0.0
-            intake = as_float(resource.get("inTake")) or 0.0
-            outtake = as_float(resource.get("outTake")) or 0.0
-            if abs(value) < 0.0001 and abs(intake) < 0.0001 and abs(outtake) < 0.0001:
-                continue
-            facts.append(
-                ResourceStockFact(
-                    company=company,
-                    object_id=object_id,
-                    object_label=object_label(object_id, object_names),
-                    resource_key=resource_key,
-                    resource_name=resources.get(resource_key) or friendly_key(resource_key) or resource_key,
-                    value=value,
-                    intake=intake,
-                    outtake=outtake,
-                    source="company_stock",
-                )
-            )
-    return sorted(facts, key=lambda fact: (fact.company, fact.object_label, fact.resource_name))
-
-
-def production_runway_days(stock: float, net_per_day: float) -> float | None:
-    if net_per_day >= 0:
-        return None
-    if stock <= 0:
-        return 0.0
-    return stock / abs(net_per_day)
-
-
-def production_status(stock: float, net_per_day: float) -> tuple[str, str]:
-    if net_per_day >= 0:
-        return "Stable", "non-negative net flow"
-    if stock <= 0:
-        return "Critical", "stock is empty and net flow is negative"
-    runway_days = stock / abs(net_per_day)
-    if runway_days < PRODUCTION_RUNWAY_CRITICAL_DAYS:
-        return "Critical", "less than half a year of stock remaining"
-    if runway_days < PRODUCTION_RUNWAY_URGENT_DAYS:
-        return "Urgent", "less than one year of stock remaining"
-    if runway_days < PRODUCTION_RUNWAY_WARNING_DAYS:
-        return "Warning", "less than two years of stock remaining"
-    return "Monitor", "negative flow, but more than two years of stock remain"
-
-
-def build_production_balance_metrics(
-    resource_stock_facts: list[ResourceStockFact],
-    object_facts: dict[int, ObjectFact],
-) -> list[ProductionBalanceMetric]:
-    metrics: list[ProductionBalanceMetric] = []
-    for fact in resource_stock_facts:
-        net = fact.intake - fact.outtake
-        runway_days = production_runway_days(fact.value, net)
-        status, status_basis = production_status(fact.value, net)
-        object_fact = object_facts.get(fact.object_id)
-        object_type = object_fact.object_type if object_fact else ""
-        metrics.append(
-            ProductionBalanceMetric(
-                production_key=f"{fact.company}:{fact.object_id}:{fact.resource_key}",
-                company=fact.company,
-                object_id=fact.object_id,
-                object_label=fact.object_label,
-                object_type=object_type,
-                resource_key=fact.resource_key,
-                resource_name=fact.resource_name,
-                stock=fact.value,
-                intake_per_day=fact.intake,
-                outtake_per_day=fact.outtake,
-                net_per_day=net,
-                runway_days=runway_days,
-                status=status,
-                status_basis=status_basis,
-                source=fact.source,
-            )
-        )
-
-    status_rank = {"Critical": 0, "Urgent": 1, "Warning": 2, "Monitor": 3, "Stable": 4}
-    return sorted(
-        metrics,
-        key=lambda metric: (
-            status_rank.get(metric.status, 9),
-            metric.runway_days if metric.runway_days is not None else float("inf"),
-            metric.object_label,
-            metric.resource_name,
-        ),
-    )
-
-
 def load_habitat_capacity_map(repo_root: Path) -> dict[str, float]:
     capacities: dict[str, float] = {}
     path = repo_root / "data" / "derived" / "population" / "habitat_capacities.csv"
@@ -2177,6 +1902,8 @@ def build_population_readiness_metrics(
     resource_stock_facts: list[ResourceStockFact],
     object_facts: dict[int, ObjectFact],
     included_companies: set[str] | None = None,
+    technology_reference: TechReferenceCatalog | None = None,
+    tech_unlock_facts: list[TechUnlockFact] | None = None,
 ) -> list[PopulationReadinessMetric]:
     habitat_capacities = load_habitat_capacity_map(repo_root)
     object_rows = object_company_rows(save, included_companies)
@@ -2231,7 +1958,15 @@ def build_population_readiness_metrics(
         current_modeled_supply = modeled_surface_supply_demand(current_population, completed_housing)
         projected_modeled_supply = modeled_surface_supply_demand(projected_population, projected_housing)
         supply_modifier, supply_modifier_basis = effective_supply_modifier(supply_outtake, current_modeled_supply)
-        added_supply_demand = max(projected_modeled_supply - current_modeled_supply, 0.0) * supply_modifier
+        raw_added_supply_demand = max(projected_modeled_supply - current_modeled_supply, 0.0) * supply_modifier
+        unlocked_modifiers = unlocked_reference_modifiers(technology_reference, tech_unlock_facts, mission.company)
+        added_supply_demand, supply_tech_adjustment = life_support_consumption_adjustment(
+            unlocked_modifiers,
+            raw_demand=raw_added_supply_demand,
+            apply_to_saved_outtake=supply_modifier_basis.startswith("derived from saved"),
+        )
+        if supply_tech_adjustment:
+            supply_modifier_basis = f"{supply_modifier_basis}; tech {supply_tech_adjustment.basis}"
         projected_outtake = supply_outtake + added_supply_demand
         projected_net = supply_intake - projected_outtake
         runway_days = supply_value / abs(projected_net) if projected_net < 0 else None
@@ -2274,6 +2009,7 @@ def build_population_readiness_metrics(
                 effective_supply_modifier=supply_modifier,
                 supply_modifier_basis=supply_modifier_basis,
                 added_supply_demand_per_day=added_supply_demand,
+                raw_added_supply_demand_per_day=raw_added_supply_demand,
                 projected_supply_outtake_per_day=projected_outtake,
                 projected_supply_net_per_day=projected_net,
                 supply_runway_days=runway_days,
@@ -2299,6 +2035,7 @@ def build_population_readiness_metrics(
                     projected_net=projected_net,
                     runway_days=runway_days,
                 ),
+                tech_adjustment=supply_tech_adjustment,
             )
         )
 
@@ -2336,6 +2073,8 @@ def build_crew_metrics(
     craft_facts: list[CraftFact],
     transport_capacities: dict[str, dict[str, object]],
     current_time: datetime | None,
+    technology_reference: TechReferenceCatalog | None = None,
+    tech_unlock_facts: list[TechUnlockFact] | None = None,
 ) -> list[CrewMetric]:
     craft_lookup = {(craft.company, craft.craft_id): craft for craft in craft_facts}
     life_support_by_mission: dict[str, float] = {}
@@ -2354,7 +2093,15 @@ def build_crew_metrics(
         craft = craft_lookup.get((cargo.company, craft_id))
         capacity_info = transport_capacities.get(cargo.module_key, {})
         capacity_per_unit = transport_capacity_value(capacity_info)
+        raw_capacity_per_unit = capacity_per_unit
+        unlocked_modifiers = unlocked_reference_modifiers(technology_reference, tech_unlock_facts, cargo.company)
+        capacity_per_unit, capacity_adjustment = transport_capacity_adjustment(
+            unlocked_modifiers,
+            module_key=cargo.module_key,
+            raw_capacity=raw_capacity_per_unit,
+        )
         reference_seats = crew_reference_seats(cargo, capacity_per_unit)
+        raw_reference_seats = crew_reference_seats(cargo, raw_capacity_per_unit)
         empty_seats = max(reference_seats - cargo.people, 0) if reference_seats is not None else None
         display_name = str(capacity_info.get("display_name") or "") or cargo.display_name
 
@@ -2384,6 +2131,7 @@ def build_crew_metrics(
                 module_key=cargo.module_key,
                 people=cargo.people,
                 reference_seats=reference_seats,
+                raw_reference_seats=raw_reference_seats,
                 empty_seats=empty_seats,
                 state=state,
                 life_support_carriage=life_support_by_mission.get(cargo.mission_key, cargo.life_support),
@@ -2391,191 +2139,11 @@ def build_crew_metrics(
                 location=cargo.list_label,
                 warnings="",
                 source_cargo_key=cargo.cargo_key,
+                tech_adjustment=capacity_adjustment,
             )
         )
 
     return sorted(metrics, key=lambda item: (item.arrival or "9999", item.company, item.mission_id, item.crew_key))
-
-
-def stock_lookup(resource_stock_facts: list[ResourceStockFact]) -> dict[tuple[str, int, str], float]:
-    lookup: dict[tuple[str, int, str], float] = {}
-    for stock in resource_stock_facts:
-        key = (stock.company, stock.object_id, stock.resource_key)
-        lookup[key] = lookup.get(key, 0.0) + stock.value
-    return lookup
-
-
-def child_orbit_lookup(object_facts: dict[int, ObjectFact]) -> dict[int, int]:
-    lookup: dict[int, int] = {}
-    for fact in object_facts.values():
-        if fact.is_orbit and fact.parent_id is not None and fact.parent_id not in lookup:
-            lookup[fact.parent_id] = fact.object_id
-    return lookup
-
-
-def return_stock_objects(
-    destination_id: int | None,
-    object_facts: dict[int, ObjectFact],
-) -> tuple[int | None, int | None]:
-    if destination_id is None:
-        return None, None
-    destination = object_facts.get(destination_id)
-    if destination and destination.is_orbit:
-        return destination_id, destination.parent_id
-    return destination_id, None
-
-
-def compatible_fuel_cargo(cargo_facts: list[CargoFact], mission_key: str, fuel_resource_key: str) -> float:
-    if not fuel_resource_key:
-        return 0.0
-    total = 0.0
-    for cargo in cargo_facts:
-        if cargo.mission_key != mission_key or cargo.cargo_kind != "resource":
-            continue
-        if cargo.resource_key == fuel_resource_key:
-            total += cargo.mass
-    return total
-
-
-def expected_onboard_fuel_for_return(craft: CraftFact) -> tuple[float, str]:
-    saved_fuel = max(craft.capacity_metrics.saved_residual_or_onboard_fuel, 0.0)
-    if craft.status == "Planned":
-        required = craft.planned_total_fuel if craft.planned_total_fuel is not None else craft.optimal_fuel
-        if required is None:
-            return saved_fuel, "planned saved fuel; no saved requirement"
-        return max(saved_fuel - required, 0.0), "planned saved fuel minus allFuelNeed"
-    if craft.status in ROUTE_ACTIVE_STATUSES:
-        return saved_fuel, "en route saved fuel"
-    if craft.status in {"Arrived", "Idle"}:
-        return saved_fuel, "current craft fuel"
-    return saved_fuel, "saved fuel"
-
-
-def reverse_requirement_for(
-    craft: CraftFact,
-    mission: MissionFact,
-    mission_facts: list[MissionFact],
-    craft_facts: list[CraftFact],
-) -> tuple[float | None, str, str]:
-    if mission.route_type == "cyclical":
-        if craft.planned_total_fuel is not None:
-            return craft.planned_total_fuel, "High", "cyclical route estimate"
-        return None, "High", "cyclical route; no saved fuel requirement"
-
-    reverse_missions = [
-        fact
-        for fact in mission_facts
-        if fact.company == mission.company
-        and fact.start_id == mission.target_id
-        and fact.target_id == mission.start_id
-        and fact.planned_total_fuel is not None
-    ]
-    same_craft = [
-        fact
-        for fact in reverse_missions
-        if craft.craft_id in fact.craft_ids and fact.status in ROUTE_LOAD_STATUSES
-    ]
-    if same_craft:
-        return same_craft[0].planned_total_fuel, "High", "explicit reverse mission"
-
-    craft_type_by_id = {(fact.company, fact.craft_id): fact.spacecraft_type_key for fact in craft_facts}
-    same_type = [
-        fact
-        for fact in reverse_missions
-        if any(craft_type_by_id.get((fact.company, craft_id)) == craft.spacecraft_type_key for craft_id in fact.craft_ids)
-    ]
-    if same_type:
-        same_type.sort(key=lambda fact: (fact.arrival or fact.departure or "0000"), reverse=True)
-        return same_type[0].planned_total_fuel, "Medium", "same-type reverse route"
-
-    if craft.planned_total_fuel is not None:
-        return craft.planned_total_fuel, "Low", "symmetric outbound estimate"
-    return None, "Unknown", "no saved return requirement"
-
-
-def return_fuel_warning(immediate_margin: float | None, deferred_margin: float | None, surface_stock: float) -> str:
-    if immediate_margin is None:
-        return ""
-    if immediate_margin >= 0:
-        return ""
-    if surface_stock > 0 and deferred_margin is not None and deferred_margin >= 0:
-        return "Return fuel needs surface lift"
-    return "Return fuel shortfall"
-
-
-def build_return_fuel_metrics(
-    craft_facts: list[CraftFact],
-    mission_facts: list[MissionFact],
-    cargo_facts: list[CargoFact],
-    resource_stock_facts: list[ResourceStockFact],
-    object_facts: dict[int, ObjectFact],
-    resources: dict[str, str],
-) -> list[ReturnFuelMetric]:
-    mission_by_key = {mission.mission_key: mission for mission in mission_facts}
-    stocks = stock_lookup(resource_stock_facts)
-    metrics: list[ReturnFuelMetric] = []
-
-    for craft in craft_facts:
-        if not craft.has_active_assignment or craft.status not in ROUTE_LOAD_STATUSES:
-            continue
-        mission = mission_by_key.get(craft.active_assignment_key)
-        if not mission or mission.target_id is None:
-            continue
-        fuel_resource_key = craft.fuel_resource_key
-        if not fuel_resource_key:
-            continue
-
-        immediate_object_id, surface_object_id = return_stock_objects(mission.target_id, object_facts)
-        immediate_stock = stocks.get((craft.company, immediate_object_id, fuel_resource_key), 0.0) if immediate_object_id is not None else 0.0
-        surface_stock = stocks.get((craft.company, surface_object_id, fuel_resource_key), 0.0) if surface_object_id is not None else 0.0
-        compatible_cargo = compatible_fuel_cargo(cargo_facts, mission.mission_key, fuel_resource_key)
-        expected_onboard, expected_onboard_basis = expected_onboard_fuel_for_return(craft)
-        requirement, confidence, basis = reverse_requirement_for(craft, mission, mission_facts, craft_facts)
-
-        immediate_margin: float | None = None
-        deferred_margin: float | None = None
-        lift_needed = 0.0
-        if requirement is not None:
-            immediate_margin = expected_onboard + compatible_cargo + immediate_stock - requirement
-            deferred_margin = immediate_margin + surface_stock
-            if immediate_margin < 0:
-                lift_needed = min(surface_stock, abs(immediate_margin)) if surface_stock > 0 else 0.0
-
-        metrics.append(
-            ReturnFuelMetric(
-                return_key=f"{craft.company}:{craft.craft_id}:{craft.active_assignment_key}",
-                company=craft.company,
-                craft_id=craft.craft_id,
-                craft_name=craft.craft_name,
-                craft_type=craft.spacecraft_type,
-                status=craft.status,
-                route=craft.route,
-                departure=craft.departure,
-                arrival=craft.arrival,
-                destination_id=mission.target_id,
-                destination=object_facts.get(mission.target_id).label if mission.target_id in object_facts else object_label(mission.target_id, {}),
-                immediate_stock_object_id=immediate_object_id,
-                immediate_stock_object=object_facts.get(immediate_object_id).label if immediate_object_id in object_facts else "",
-                surface_stock_object_id=surface_object_id,
-                surface_stock_object=object_facts.get(surface_object_id).label if surface_object_id in object_facts else "",
-                fuel_resource_key=fuel_resource_key,
-                fuel_type=resources.get(fuel_resource_key) or craft.fuel_type_name or friendly_key(fuel_resource_key),
-                estimated_return_requirement=requirement,
-                return_requirement_confidence=confidence,
-                requirement_basis=basis,
-                expected_onboard_fuel_at_arrival=expected_onboard,
-                expected_onboard_fuel_basis=expected_onboard_basis,
-                compatible_fuel_cargo=compatible_cargo,
-                destination_immediate_stock=immediate_stock,
-                destination_surface_stock=surface_stock,
-                lift_needed_surface_fuel=lift_needed,
-                immediate_return_margin=immediate_margin,
-                deferred_return_margin=deferred_margin,
-                warning=return_fuel_warning(immediate_margin, deferred_margin, surface_stock),
-            )
-        )
-
-    return sorted(metrics, key=lambda item: (item.arrival or "9999", item.company, item.craft_name))
 
 
 def normalize_fleet(

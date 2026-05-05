@@ -36,3 +36,20 @@ def discover_saves(save_dir: Path | None = None) -> list[SaveSlot]:
             )
         )
     return sorted(slots, key=lambda slot: slot.modified_ts, reverse=True)
+
+
+def save_options_by_label(slots: list[SaveSlot]) -> dict[str, SaveSlot]:
+    return {slot.label: slot for slot in slots}
+
+
+def select_save_after_refresh(
+    slots: list[SaveSlot],
+    preferred_label: str | None = None,
+    previous_selection: SaveSlot | None = None,
+) -> SaveSlot | None:
+    options = save_options_by_label(slots)
+    if preferred_label and preferred_label in options:
+        return options[preferred_label]
+    if previous_selection and previous_selection.label in options:
+        return options[previous_selection.label]
+    return slots[0] if slots else None

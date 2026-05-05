@@ -1,0 +1,13 @@
+research_id,title,category,modifier_type,target_type,target_key,bonus,confidence
+research_agriculture_2,Regolith Adaptation,Agriculture,production_efficiency_percent,facility,build_farm,+15%,medium
+research_agriculture_3,Hydroponics,Agriculture,production_efficiency_percent,facility,build_farm,+25%,medium
+research_agriculture_5,Low-G GMO,Agriculture,production_efficiency_percent,facility,build_farm,+25%,medium
+research_biotech_1,Bioreactors,Biotech,production_efficiency_percent,facility,build_farm,+5%,medium
+research_biotech_2,Knallgas Bacteria Farms,Biotech,production_efficiency_percent,facility,build_farm,+10%,medium
+research_biotech_5,Biological Machines,Biotech,production_efficiency_percent,facility,build_farm,+10%,medium
+research_biotech_3,Closed-cycle Algae,Biotech,life_support_consumption_percent,population,All,-10%,medium
+research_biotech_4,Genetic Engineering,Biotech,life_support_consumption_percent,population,All,-5%,medium
+research_lifesup_5,Improved Ration Packing,Lifesup,life_support_consumption_percent,population,All,-15%,medium
+research_lifesup_6,Improved Atmosphere Recycling,Lifesup,life_support_consumption_percent,population,All,-15%,medium
+research_lifesup_15,Artificial Hibernation,Lifesup,ship_life_support_consumption_percent,ship,All,-25%,medium
+research_lifesup_16,Suspended Animation,Lifesup,ship_life_support_consumption_percent,ship,All,-30%,medium
