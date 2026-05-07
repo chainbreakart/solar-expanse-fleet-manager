@@ -5,14 +5,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .normalizer import (
+from .fact_model import (
     AttentionRow,
-    CargoFlightMetric,
     BodyMetric,
     CargoFact,
+    CargoFlightMetric,
     CraftFact,
     CrewMetric,
     FleetRow,
+    KnownResourceDepositFact,
     MissionFact,
     ObjectFact,
     PopulationDestinationMetric,
@@ -26,35 +27,29 @@ from .normalizer import (
     TechModifierFact,
     TechReferenceCatalog,
     TechUnlockFact,
-    build_attention_rows,
-    build_body_metrics,
-    build_cargo_facts,
-    build_craft_facts,
-    build_crew_metrics,
-    build_mission_facts,
-    build_object_facts,
-    build_object_metadata,
-    build_population_readiness_metrics,
-    build_production_balance_metrics,
-    build_resource_stock_facts,
-    build_return_fuel_metrics,
-    build_route_metrics,
-    extract_datetime,
-    fmt_dt,
-    game_key,
-    id_value,
-    list_content,
-    load_reference_maps,
 )
-from .cargo_facts import build_cargo_flight_metrics
+from .attention import build_attention_rows
+from .body_facts import build_body_metrics
+from .cargo_facts import build_cargo_facts, build_cargo_flight_metrics
+from .craft_facts import build_craft_facts
+from .crew_facts import build_crew_metrics
+from .mission_facts import build_mission_facts
+from .normalizer_utils import extract_datetime, fmt_dt, game_key, id_value, list_content
+from .object_facts import build_object_facts, build_object_metadata
 from .odin_save_parser import SaveParseError, parse_save_file
 from .population_facts import (
     build_population_destination_metrics,
     build_population_flight_metrics,
     build_population_place_metrics,
+    build_population_readiness_metrics,
 )
+from .production_facts import build_production_balance_metrics, build_resource_stock_facts
+from .resource_deposit_facts import build_known_resource_deposit_facts
 from .reference_data import load_technology_reference_catalog, load_transport_capacities
+from .return_fuel_facts import build_return_fuel_metrics
+from .route_facts import build_route_metrics
 from .save_finder import SaveSlot
+from .spacecraft_reference import load_reference_maps
 from .technology_facts import build_tech_facts
 
 
@@ -86,6 +81,7 @@ class SaveAnalysis:
     craft_facts: list[CraftFact]
     object_facts: dict[int, ObjectFact]
     resource_stock_facts: list[ResourceStockFact]
+    known_resource_deposit_facts: list[KnownResourceDepositFact]
     tech_unlock_facts: list[TechUnlockFact]
     tech_modifier_facts: list[TechModifierFact]
     cargo_flight_metrics: list[CargoFlightMetric]
@@ -339,6 +335,13 @@ def analyze_save(slot: SaveSlot, repo_root: Path, *, include_ai_and_wg: bool = F
         included_companies=included_companies,
     )
     resource_stock_facts = build_resource_stock_facts(save, object_names, resources, included_companies)
+    known_resource_deposit_facts = build_known_resource_deposit_facts(
+        save,
+        object_facts,
+        object_names,
+        resources,
+        included_companies,
+    )
     cargo_flight_metrics = build_cargo_flight_metrics(cargo_facts, mission_facts, craft_facts, object_facts)
     route_metrics = build_route_metrics(craft_facts, cargo_facts)
     body_metrics = build_body_metrics(object_facts, craft_facts, cargo_facts, mission_facts)
@@ -396,12 +399,19 @@ def analyze_save(slot: SaveSlot, repo_root: Path, *, include_ai_and_wg: bool = F
     )
     attention_rows = build_attention_rows(
         return_fuel_metrics,
-        craft_facts,
-        mission_facts,
-        population_readiness_metrics,
-        cargo_facts,
-        object_facts,
-        roles.role_notes,
+        craft_facts=craft_facts,
+        mission_facts=mission_facts,
+        population_readiness_metrics=population_readiness_metrics,
+        cargo_facts=cargo_facts,
+        object_facts=object_facts,
+        cargo_flight_metrics=cargo_flight_metrics,
+        resource_stock_facts=resource_stock_facts,
+        tech_unlock_facts=tech_unlock_facts,
+        technology_reference=technology_reference,
+        buildables=buildables,
+        resources=resources,
+        transport_capacities=transport_capacities,
+        company_role_notes=roles.role_notes,
     )
     fleet_rows = fleet_rows_from_craft_facts(craft_facts)
 
@@ -418,12 +428,16 @@ def analyze_save(slot: SaveSlot, repo_root: Path, *, include_ai_and_wg: bool = F
         "attention_count": str(len(attention_rows)),
         "fuel_attention_count": str(sum(1 for row in attention_rows if row.category == "Fuel")),
         "capacity_attention_count": str(sum(1 for row in attention_rows if row.category == "Capacity")),
+        "route_attention_count": str(sum(1 for row in attention_rows if row.category == "Route")),
         "population_attention_count": str(sum(1 for row in attention_rows if row.category == "Population")),
+        "cargo_attention_count": str(sum(1 for row in attention_rows if row.category == "Cargo")),
+        "technology_attention_count": str(sum(1 for row in attention_rows if row.category == "Technology")),
         "save_data_attention_count": str(sum(1 for row in attention_rows if row.category == "Save Data")),
         "tech_unlock_count": str(len(tech_unlock_facts)),
         "tech_modifier_count": str(len(tech_modifier_facts)),
         "tech_reference_count": str(len(technology_reference.rows)),
         "tech_reference_modifier_count": str(len(technology_reference.modifiers)),
+        "known_resource_deposit_count": str(len(known_resource_deposit_facts)),
     }
 
     return SaveAnalysis(
@@ -453,6 +467,7 @@ def analyze_save(slot: SaveSlot, repo_root: Path, *, include_ai_and_wg: bool = F
         craft_facts=craft_facts,
         object_facts=object_facts,
         resource_stock_facts=resource_stock_facts,
+        known_resource_deposit_facts=known_resource_deposit_facts,
         tech_unlock_facts=tech_unlock_facts,
         tech_modifier_facts=tech_modifier_facts,
         cargo_flight_metrics=cargo_flight_metrics,

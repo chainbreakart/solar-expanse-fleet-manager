@@ -3,13 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from nicegui import context, ui
+from nicegui import app as nicegui_app, context, ui
 
 APP_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(APP_DIR))
 
 from fleet_core.analysis import analyze_save
-from fleet_core.app_paths import app_dir, ensure_user_dirs, resource_root, server_host, server_port
+from fleet_core.app_paths import app_dir, ensure_user_dirs, resolve_server_port, resource_root, server_host
 from fleet_core.ipc import ensure_ipc_paths
 from fleet_core.odin_save_parser import SaveParseError
 from fleet_core.save_finder import SaveSlot, discover_saves, save_options_by_label, select_save_after_refresh
@@ -20,16 +20,20 @@ from fleet_modules.cargo_dashboard import (
     render_cargo_movement_dashboard,
     render_cargo_receipts_dashboard,
 )
-from fleet_modules.overview_dashboard import render_global_overview_kpis
+from fleet_modules.fleet_dashboard import render_fleet_dashboard
+from fleet_modules.overview_dashboard import render_overview_dashboard
 from fleet_modules.people_transit import MODULE as PEOPLE_TRANSIT
 from fleet_modules.population_dashboard import (
-    ATTENTION_STATUSES,
-    population_flights,
-    population_places,
+    render_population_hub_dashboard,
     render_population_movement_dashboard,
     render_population_places_dashboard,
 )
-from fleet_modules.production_dashboard import render_production_dashboard
+from fleet_modules.production_dashboard import (
+    render_production_balance_dashboard,
+    render_production_dashboard,
+    render_production_opportunities_dashboard,
+    render_production_sites_dashboard,
+)
 from fleet_modules.shared import TableModule
 from fleet_modules.technology_dashboard import render_technology_dashboard
 
@@ -43,6 +47,7 @@ STYLESHEET_PATHS = (
 STYLESHEET_PATH = next((path for path in STYLESHEET_PATHS if path.exists()), STYLESHEET_PATHS[0])
 APP_DATA_DIR = ensure_user_dirs()
 IPC_PATHS = ensure_ipc_paths()
+nicegui_app.add_static_files("/fleet-assets", APP_ROOT / "assets")
 
 saves: list[SaveSlot] = discover_saves()
 selected_save: SaveSlot | None = saves[0] if saves else None
@@ -231,6 +236,8 @@ def empty_meta() -> dict[str, str]:
         "fuel_attention_count": "",
         "capacity_attention_count": "",
         "population_attention_count": "",
+        "cargo_attention_count": "",
+        "technology_attention_count": "",
     }
 
 
@@ -272,6 +279,7 @@ def render_nav(active: str) -> None:
     with ui.row().classes("section-nav"):
         for key, label, path in (
             ("overview", "Overview", "/"),
+            ("fleet", "Fleet", "/fleet"),
             ("population", "Population", "/population"),
             ("cargo", "Cargo", "/cargo"),
             ("production", "Production", "/production"),
@@ -301,6 +309,18 @@ def render_cargo_subnav(active: str) -> None:
             ("movement", "Movement", "/cargo/movement"),
             ("receipts", "Receipts", "/cargo/receipts"),
             ("manifests", "Manifests", "/cargo/manifests"),
+        ):
+            classes = "subsection-link subsection-link-active" if key == active else "subsection-link"
+            ui.link(label, path).classes(classes)
+
+
+def render_production_subnav(active: str) -> None:
+    with ui.row().classes("subsection-nav"):
+        for key, label, path in (
+            ("hub", "Overview", "/production"),
+            ("balance", "Balance", "/production/balance"),
+            ("opportunities", "Opportunities", "/production/opportunities"),
+            ("sites", "Site Stock", "/production/sites"),
         ):
             classes = "subsection-link subsection-link-active" if key == active else "subsection-link"
             ui.link(label, path).classes(classes)
@@ -407,6 +427,111 @@ def cargo_drilldown_filters() -> dict[str, str]:
     }
 
 
+def fleet_drilldown_filters() -> dict[str, str]:
+    request = context.client.request
+    params = request.query_params if request else {}
+    return {
+        key: str(params.get(key) or "")
+        for key in (
+            "company",
+            "status",
+            "location",
+            "type",
+            "state",
+            "cargo",
+            "people",
+            "warning",
+            "assignment",
+            "sort",
+            "craft",
+            "mission",
+            "route",
+            "object",
+        )
+        if params.get(key)
+    }
+
+
+def requested_data_tab() -> str:
+    request = context.client.request
+    params = request.query_params if request else {}
+    return str(params.get("tab") or "")
+
+
+def requested_data_filters() -> dict[str, str]:
+    request = context.client.request
+    params = request.query_params if request else {}
+    return {
+        key: str(params.get(key) or "")
+        for key in (
+            "key",
+            "company",
+            "resource",
+            "object",
+            "mission",
+            "status",
+            "source",
+            "destination",
+            "route",
+            "research_id",
+            "category",
+            "support",
+        )
+        if params.get(key)
+    }
+
+
+def row_filter_values(row: dict[str, object], *keys: str) -> set[str]:
+    values: set[str] = set()
+    for key in keys:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        text = str(value)
+        values.add(text)
+        for separator in (";", ","):
+            if separator in text:
+                values.update(part.strip() for part in text.split(separator) if part.strip())
+    return values
+
+
+def data_row_matches_filters(row: dict[str, object], filters: dict[str, str]) -> bool:
+    if not filters:
+        return True
+    row_key = filters.get("key")
+    if row_key and row_key != str(row.get("key") or ""):
+        return False
+    company = filters.get("company")
+    if company and str(row.get("company") or "") != company:
+        return False
+    resource = filters.get("resource")
+    if resource:
+        resource_values = row_filter_values(row, "resource_key", "resource", "resource_keys", "items", "top_cargo")
+        if resource not in resource_values:
+            return False
+    object_id = filters.get("object")
+    if object_id:
+        object_values = row_filter_values(row, "object_id", "craft_id", "id", "source_id", "target_id", "location_id")
+        object_labels = " ".join(str(row.get(key) or "") for key in ("location", "place", "body", "source", "destination", "route"))
+        if object_id not in object_values and f"({object_id})" not in object_labels:
+            return False
+    mission = filters.get("mission")
+    if mission and mission not in row_filter_values(row, "mission", "mission_id", "mission_key", "missions"):
+        return False
+    for key in ("status", "source", "destination", "route", "research_id", "category"):
+        expected = filters.get(key)
+        if expected and expected != str(row.get(key) or ""):
+            return False
+    support = filters.get("support")
+    if support and support not in row_filter_values(row, "support", "support_classes"):
+        return False
+    return True
+
+
+def filter_data_rows(rows: list[dict[str, object]], filters: dict[str, str]) -> list[dict[str, object]]:
+    return [row for row in rows if data_row_matches_filters(row, filters)]
+
+
 def people_row_matches_filter(row: dict[str, object], filters: dict[str, str]) -> bool:
     if not filters:
         return True
@@ -456,74 +581,42 @@ def render_people_filter_banner(filters: dict[str, str], rows: list[dict[str, ob
 def render_overview_content(container, analysis, meta: dict[str, str]) -> None:
     container.clear()
     with container:
-        render_global_overview_kpis(analysis)
-        with ui.element("div").classes("overview-grid"):
-            with ui.element("div").classes("section-card"):
-                ui.label("Population Logistics").classes("section-card-title")
-                ui.label(
-                    f"{meta.get('people_in_transit') or '-'} people moving, "
-                    f"{meta.get('empty_crew_items') or '-'} empty crew holds, "
-                    f"{meta.get('population_readiness_alerts') or '0'} destination concerns."
-                ).classes("section-card-copy")
-                ui.link("Open population dashboard", "/population").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Cargo Transit").classes("section-card-title")
-                ui.label(
-                    "Cargo movement KPIs, route summaries, and grouped manifest drill-downs."
-                ).classes("section-card-copy")
-                ui.link("Open cargo dashboard", "/cargo").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Production").classes("section-card-title")
-                ui.label(
-                    "Save-grounded stock, intake, outtake, net flow, and depletion runway."
-                ).classes("section-card-copy")
-                ui.link("Open production dashboard", "/production").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Technology").classes("section-card-title")
-                ui.label(
-                    "Focused-save research unlocks, active research, and tech modifiers currently attached to planner facts."
-                ).classes("section-card-copy")
-                ui.link("Open technology dashboard", "/technology").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Data Tables").classes("section-card-title")
-                ui.label(
-                    "Fleet, route, body, people transit, and return-fuel boards for detailed inspection."
-                ).classes("section-card-copy")
-                ui.link("Open data tables", "/data").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Decision Tiles").classes("section-card-title")
-                ui.label(
-                    "The index stays quiet: global status first, then section launchers for deeper validation."
-                ).classes("section-card-copy")
+        render_overview_dashboard(analysis, meta)
 
 
 def render_population_hub_content(container, analysis, meta: dict[str, str]) -> None:
-    container.clear()
-    moving_people = meta.get("people_in_transit") or "0"
-    flights = population_flights(analysis)
-    places = population_places(analysis)
-    places_with_concerns = sum(1 for row in places if row["status"] in ATTENTION_STATUSES)
-    with container:
-        with ui.element("div").classes("overview-grid"):
-            with ui.element("div").classes("section-card"):
-                ui.label("People Movement").classes("section-card-title")
-                ui.label(
-                    f"{moving_people} people moving across {len(flights)} detected flight rows. "
-                    "Use this for in-transit manifests, arrival timing, destination readiness, and movement drill-downs."
-                ).classes("section-card-copy")
-                ui.link("Open people movement", "/population/movement").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Place Sustainment").classes("section-card-title")
-                ui.label(
-                    f"{len(places)} places have population, housing, or inbound people; "
-                    f"{places_with_concerns} currently show sustainment concerns."
-                ).classes("section-card-copy")
-                ui.link("Open places dashboard", "/population/places").classes("section-link mt-3 inline-flex")
-            with ui.element("div").classes("section-card"):
-                ui.label("Growth / Sustainment").classes("section-card-title")
-                ui.label(
-                    "This will become the colony-growth layer: housing runway, Supply runway, queued capacity, and demand that has no inbound people."
-                ).classes("section-card-copy")
+    render_population_hub_dashboard(analysis, meta, container)
+
+
+@ui.page("/fleet")
+def fleet_page() -> None:
+    apply_theme()
+    drilldown_filters = fleet_drilldown_filters()
+    with ui.column().classes("app-shell w-full"):
+        render_nav("fleet")
+        ui.label("Fleet Control").classes("text-2xl font-semibold")
+        ui.label("Ship inventory, idle craft, assignments, cargo, crew, fuel context, and drill-downs.").classes(
+            "text-sm text-slate-600"
+        )
+        content = ui.column().classes("w-full gap-3")
+
+        def clear_page() -> None:
+            content.clear()
+
+        def load_save(slot: SaveSlot | None) -> None:
+            analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
+            if analysis is None or slot is None:
+                clear_page()
+                return
+            content.clear()
+            render_fleet_dashboard(analysis, content, drilldown_filters)
+            status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
+
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
+        include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
+        reload_button.on_click(lambda: load_save(refresh_save_select(select, select.value)))
+        load_save(selected_save)
 
 
 @ui.page("/")
@@ -531,13 +624,11 @@ def overview_page() -> None:
     apply_theme()
     with ui.column().classes("app-shell w-full"):
         render_nav("overview")
-        ui.label("Solar Expanse Fleet Manager").classes("text-2xl font-semibold")
-        ui.label("Topline movement status and section launcher.").classes("text-sm text-slate-600")
-        metrics = ui.row().classes("gap-2")
+        ui.label("Command Overview").classes("text-2xl font-semibold")
+        ui.label("Colonies, supply lines, industry, and research at a glance.").classes("text-sm text-slate-600")
         content = ui.column().classes("w-full")
 
         def clear_page() -> None:
-            render_metric_cards(metrics, empty_meta())
             content.clear()
 
         def load_save(slot: SaveSlot | None) -> None:
@@ -546,7 +637,6 @@ def overview_page() -> None:
                 clear_page()
                 return
             meta = meta_with_module_metrics(analysis)
-            render_metric_cards(metrics, meta)
             render_overview_content(content, analysis, meta)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
@@ -564,7 +654,7 @@ def population_page() -> None:
         render_nav("population")
         render_population_subnav("hub")
         ui.label("Population").classes("text-2xl font-semibold")
-        ui.label("Section hub for movement, place sustainment, and future prep planning.").classes("text-sm text-slate-600")
+        ui.label("Settlement pressure, migration flow, and sustainment at a glance.").classes("text-sm text-slate-600")
         content = ui.column().classes("w-full")
 
         def clear_page() -> None:
@@ -662,7 +752,7 @@ def cargo_page() -> None:
         render_nav("cargo")
         render_cargo_subnav("hub")
         ui.label("Cargo").classes("text-2xl font-semibold")
-        ui.label("Cargo overview with focused movement, receipt, and manifest workflows.").classes("text-sm text-slate-600")
+        ui.label("Supply lanes, settlement cargo, receipts, and manifest evidence at a glance.").classes("text-sm text-slate-600")
         content = ui.column().classes("w-full gap-3")
 
         def clear_page() -> None:
@@ -674,9 +764,7 @@ def cargo_page() -> None:
                 clear_page()
                 return
             content.clear()
-            with content:
-                dashboard_panel = ui.column().classes("dashboard-panel")
-                render_cargo_dashboard(analysis, dashboard_panel)
+            render_cargo_dashboard(analysis, content)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
         select, include_ai_and_wg, reload_button, status_label = render_save_controls()
@@ -787,8 +875,38 @@ def production_page() -> None:
     apply_theme()
     with ui.column().classes("app-shell w-full"):
         render_nav("production")
+        render_production_subnav("hub")
         ui.label("Production").classes("text-2xl font-semibold")
-        ui.label("Resource stock, flow, and runway from company-local save data.").classes("text-sm text-slate-600")
+        ui.label("Industrial stockpiles, exporters, runway, and colony-prep evidence.").classes("text-sm text-slate-600")
+        content = ui.column().classes("w-full gap-3")
+
+        def clear_page() -> None:
+            content.clear()
+
+        def load_save(slot: SaveSlot | None) -> None:
+            analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
+            if analysis is None or slot is None:
+                clear_page()
+                return
+            content.clear()
+            render_production_dashboard(analysis, content)
+            status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
+
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
+        include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
+        reload_button.on_click(lambda: load_save(refresh_save_select(select, select.value)))
+        load_save(selected_save)
+
+
+@ui.page("/production/balance")
+def production_balance_page() -> None:
+    apply_theme()
+    with ui.column().classes("app-shell w-full"):
+        render_nav("production")
+        render_production_subnav("balance")
+        ui.label("Production Balance").classes("text-2xl font-semibold")
+        ui.label("Surpluses, deficits, exporter candidates, and sustainment runway.").classes("text-sm text-slate-600")
         content = ui.column().classes("w-full gap-3")
 
         def clear_page() -> None:
@@ -802,7 +920,7 @@ def production_page() -> None:
             content.clear()
             with content:
                 dashboard_panel = ui.column().classes("dashboard-panel")
-                render_production_dashboard(analysis, dashboard_panel)
+                render_production_balance_dashboard(analysis, dashboard_panel)
             status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
 
         select, include_ai_and_wg, reload_button, status_label = render_save_controls()
@@ -810,6 +928,98 @@ def production_page() -> None:
         include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
         reload_button.on_click(lambda: load_save(refresh_save_select(select, select.value)))
         load_save(selected_save)
+
+
+@ui.page("/production/opportunities")
+def production_opportunities_page() -> None:
+    apply_theme()
+    with ui.column().classes("app-shell w-full"):
+        render_nav("production")
+        render_production_subnav("opportunities")
+        ui.label("Resource Opportunities").classes("text-2xl font-semibold")
+        ui.label("Known shortage-to-site candidates from visible stock, flow, route, and body evidence.").classes(
+            "text-sm text-slate-600"
+        )
+        content = ui.column().classes("w-full gap-3")
+
+        def clear_page() -> None:
+            content.clear()
+
+        def load_save(slot: SaveSlot | None) -> None:
+            analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
+            if analysis is None or slot is None:
+                clear_page()
+                return
+            content.clear()
+            with content:
+                dashboard_panel = ui.column().classes("dashboard-panel")
+                render_production_opportunities_dashboard(analysis, dashboard_panel)
+            status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
+
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
+        include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
+        reload_button.on_click(lambda: load_save(refresh_save_select(select, select.value)))
+        load_save(selected_save)
+
+
+@ui.page("/production/sites")
+def production_sites_page() -> None:
+    apply_theme()
+    with ui.column().classes("app-shell w-full"):
+        render_nav("production")
+        render_production_subnav("sites")
+        ui.label("Production Site Stock").classes("text-2xl font-semibold")
+        ui.label("Candidate colony-support stock grouped by location.").classes("text-sm text-slate-600")
+        content = ui.column().classes("w-full gap-3")
+
+        def clear_page() -> None:
+            content.clear()
+
+        def load_save(slot: SaveSlot | None) -> None:
+            analysis = load_analysis(slot, bool(include_ai_and_wg.value), status_label)
+            if analysis is None or slot is None:
+                clear_page()
+                return
+            content.clear()
+            with content:
+                dashboard_panel = ui.column().classes("dashboard-panel")
+                render_production_sites_dashboard(analysis, dashboard_panel)
+            status_label.text = status_message(analysis, slot, bool(include_ai_and_wg.value))
+
+        select, include_ai_and_wg, reload_button, status_label = render_save_controls()
+        select.on_value_change(lambda event: load_save(set_selected_save(event.value)))
+        include_ai_and_wg.on_value_change(lambda _: load_save(save_options.get(select.value)))
+        reload_button.on_click(lambda: load_save(refresh_save_select(select, select.value)))
+        load_save(selected_save)
+
+
+@ui.page("/colony-planner")
+def colony_planner_page() -> None:
+    apply_theme()
+    request = context.client.request
+    params = request.query_params if request else {}
+    resource = str(params.get("resource") or "")
+    target = str(params.get("target") or "")
+    objective = str(params.get("objective") or "")
+    with ui.column().classes("app-shell w-full"):
+        render_nav("population")
+        ui.label("Colony Planner").classes("text-2xl font-semibold")
+        ui.label("Saved plans and templates are not implemented yet; this page currently receives planning handoffs.").classes(
+            "text-sm text-slate-600"
+        )
+        with ui.element("div").classes("dashboard-panel"):
+            with ui.element("div").classes("dashboard-card dashboard-card-wide"):
+                ui.label("Planning Handoff").classes("dashboard-card-title")
+                if resource or target or objective:
+                    ui.label(f"Objective: {objective or 'not specified'}").classes("section-card-copy")
+                    ui.label(f"Resource: {resource or 'not specified'}").classes("section-card-copy")
+                    ui.label(f"Target object: {target or 'not specified'}").classes("section-card-copy")
+                    ui.link("Back to opportunities", "/production/opportunities").classes("table-drilldown-link")
+                else:
+                    ui.label("Open a Resource Opportunity row from Production to prefill this handoff.").classes(
+                        "empty-state-note"
+                    )
 
 
 @ui.page("/technology")
@@ -850,13 +1060,18 @@ def data_page() -> None:
     with ui.column().classes("app-shell w-full"):
         render_nav("data")
         ui.label("Data Tables").classes("text-2xl font-semibold")
-        ui.label("Full drill-down boards for attention, fleet, route, body, people, and fuel inspection.").classes("text-sm text-slate-600")
+        ui.label(
+            "Flight-recorder boards for source rows, confidence, anomaly destinations, and detailed inspection."
+        ).classes("text-sm text-slate-600")
 
         with ui.tabs().classes("w-full") as tabs:
             for module in MODULES:
                 module_tabs[module.key] = ui.tab(module.label)
 
-        first_tab = module_tabs[MODULES[0].key] if MODULES else None
+        requested_tab = requested_data_tab()
+        requested_filters = requested_data_filters()
+        default_key = MODULES[0].key if MODULES else ""
+        first_tab = module_tabs.get(requested_tab) or module_tabs.get(default_key)
         with ui.tab_panels(tabs, value=first_tab).classes("w-full"):
             for module in MODULES:
                 with ui.tab_panel(module_tabs[module.key]):
@@ -873,7 +1088,7 @@ def data_page() -> None:
                 clear_page()
                 return
             for module in MODULES:
-                rows = module.build_rows(analysis)
+                rows = filter_data_rows(module.build_rows(analysis), requested_filters)
                 table = module_tables[module.key]
                 table.rows = rows
                 table.update()
@@ -886,5 +1101,18 @@ def data_page() -> None:
         load_save(selected_save)
 
 
+def run_server() -> None:
+    host = server_host()
+    try:
+        port, startup_notes = resolve_server_port(host)
+    except RuntimeError as exc:
+        print(f"Solar Expanse Fleet Manager could not start: {exc}", file=sys.stderr, flush=True)
+        sys.exit(2)
+    for note in startup_notes:
+        print(note, flush=True)
+    print(f"Open Solar Expanse Fleet Manager at http://{host}:{port}", flush=True)
+    ui.run(title="Solar Expanse Fleet Manager", host=host, port=port, reload=False, show=False)
+
+
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title="Solar Expanse Fleet Manager", host=server_host(), port=server_port(), reload=False, show=False)
+    run_server()

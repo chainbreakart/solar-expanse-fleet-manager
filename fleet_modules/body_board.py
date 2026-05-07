@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from fleet_core.analysis import SaveAnalysis
-from fleet_core.normalizer import fmt_num
+from fleet_core.normalizer_utils import fmt_num
 
-from .shared import TableModule, TableRow
+from .shared import AUDIT_COLUMNS, TableModule, TableRow, fleet_link
 
 
 columns = [
@@ -25,6 +25,7 @@ columns = [
     {"name": "warnings", "label": "Warnings", "field": "warnings", "sortable": False, "align": "left"},
     {"name": "inbound_routes", "label": "Inbound Routes", "field": "inbound_routes", "sortable": False, "align": "left"},
     {"name": "outbound_routes", "label": "Outbound Routes", "field": "outbound_routes", "sortable": False, "align": "left"},
+    *AUDIT_COLUMNS,
 ]
 
 
@@ -38,6 +39,8 @@ def build_rows(analysis: SaveAnalysis) -> list[TableRow]:
         result.append(
             {
                 "key": metric.object_id,
+                "fleet_url": fleet_link(object=metric.object_id),
+                "idle_fleet_url": fleet_link(object=metric.object_id, state="Idle"),
                 "body": metric.body,
                 "type": metric.object_type,
                 "parent": metric.parent,
@@ -56,6 +59,9 @@ def build_rows(analysis: SaveAnalysis) -> list[TableRow]:
                 "inbound_routes": "; ".join(metric.inbound_routes),
                 "outbound_routes": "; ".join(metric.outbound_routes),
                 "warnings": "; ".join(metric.warnings),
+                "audit_source": "BodyMetric from ObjectFact + CraftFact + MissionFact + CargoFact",
+                "confidence": "high" if metric.object_type != "Unknown" else "medium",
+                "anomaly_destination": "Attention / Body Board" if metric.warnings or metric.object_type == "Unknown" else "Body Board",
             }
         )
     return result
@@ -66,4 +72,14 @@ MODULE = TableModule(
     label="Body Board",
     columns=columns,
     build_rows=build_rows,
+    slots={
+        "body-cell-craft_here": r"""
+            <q-td :props="props">
+                <a :href="props.row.fleet_url" class="table-drilldown-link">{{ props.row.craft_here }}</a>
+                <span v-if="props.row.idle" class="q-ml-sm">
+                    <a :href="props.row.idle_fleet_url" class="table-drilldown-link">Idle</a>
+                </span>
+            </q-td>
+        """,
+    },
 )

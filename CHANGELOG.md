@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.11.1 - Windows Desktop and Fleet Control Update
+
+This patch release makes Fleet Manager easier to run on Windows and promotes ship inventory into a first-class Fleet Control workflow. The app is still a local, read-only save companion, but Windows users can now start from an installer instead of building from source.
+
+### Features
+
+- Added a Windows x64 installer as a GitHub release asset.
+- Added a desktop launcher that owns the local Fleet Manager server and opens the app in a standalone window.
+- Added a system tray controller with Open Fleet Manager, Open in Browser, Copy URL, Restart Server, Stop Server, Change Port / Configure Port, Open Logs, and Quit.
+- Added Start Menu recovery shortcuts for Browser Mode, port configuration, and logs.
+- Added local app-data storage for desktop launcher config and logs under `%LOCALAPPDATA%\SolarExpanseFleetManager`.
+- Added a first-class Fleet Control tab for ship inventory, idle/active/planned craft, locations, assignment state, cargo, crew, fuel context, warnings, and source links.
+- Added Fleet Control filtering and sorting for company, ship status, location, hull/type, idle state, cargo present, crew/passenger context, warning state, and assignment state.
+- Added cross-domain drill-downs between Fleet, Cargo, Route, Return Fuel, Body/location, and Data Tables rows.
+- Added Production Opportunities for material shortages, known candidate locations, and no-spoiler resource evidence handoff into colony-planning decisions.
+- Added broader audit panes and exact row-filter links across Cargo, Production, and Technology so dashboard numbers can be traced back to source rows.
+
+### Fixes
+
+- Port `8080` contention now has a user-facing recovery path: Fleet Manager falls back to the next available nearby port by default, and strict-port mode reports a clear error when requested.
+- The installed app now launches as a windowed application instead of leaving a command prompt window open in the background.
+- The desktop launcher cleans up its owned server process on restart, stop, quit, or window close.
+- Installer validation now covers clean startup, busy-port fallback, strict-port failure messaging, browser mode, installed-app startup, and uninstall cleanup.
+- Arrived historical missions no longer show as main attention warnings.
+- Cargo, Production, Technology, and Fleet drill-down links now land closer to the specific evidence rows behind each dashboard summary.
+
+### Notes
+
+- The installer is attached to the GitHub release. Packaging scripts and build scratch remain outside the public source tree.
+- Source installs are still supported with `python desktop_launcher.py`, and direct browser/server mode remains available with `python app.py`.
+- The app remains read-only and does not edit or write save files.
+
 ## 0.11.0 - Evidence Console Update
 
 This release turns Fleet Manager from a set of useful dashboards into a more complete read-only logistics evidence console. It is still a local, source-install companion app: create a Python virtual environment, install `requirements.txt`, run `python app.py`, and inspect your saves in the browser.

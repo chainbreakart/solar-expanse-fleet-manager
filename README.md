@@ -10,14 +10,27 @@ This is an early public preview. It is meant for logistics inspection and valida
 - Sticky save selection while navigating between dashboard sections.
 - Player-company-first filtering, with a de-emphasized toggle for AI/WG company data.
 - Overview page with top-line save context, operations status tiles, next arrival/departure, idle craft, and needs-attention count.
+- Fleet Control dashboard for ship inventory, idle/active/planned craft, locations, assignment state, cargo, crew, fuel context, warnings, and source links.
 - Population dashboards for people in transit, destination readiness, housing, Supply runway, and place sustainment.
 - Cargo dashboards split into Overview, Movement, Receipts, and Manifests so route timing, destination receipts, and raw cargo inspection stay separate.
 - Cargo support classification for colony-start evidence such as Supply, habitat/crew modules, outpost/build modules, compatible fuel, and common construction resources.
-- Production dashboard with stock, intake, outtake, net flow, runway focus, balance bars, heatmap modes, sustainment watchlist, and candidate-site stock summaries.
+- Production dashboards with stock, intake, outtake, net flow, runway focus, balance bars, heatmap modes, sustainment watchlists, candidate-site stock summaries, and resource opportunity rows.
 - Technology dashboard showing focused-save research unlocks, active/queued research, unlocked spacecraft/buildables, and tech modifiers currently used by planner math.
 - Shared attention rows for return fuel, population readiness, capacity diagnostics, and save/parser anomalies.
 - Data tables for fleet, routes, bodies, people transit, return-fuel estimates, technology, and attention rows.
 - Hard sci-fi command console visual theme.
+
+## Windows Installer
+
+Windows users can download the latest `SolarExpanseFleetManager-Setup-...-x64.exe` from the GitHub Releases page:
+
+```text
+https://github.com/chainbreakart/solar-expanse-fleet-manager/releases
+```
+
+The installer adds Start Menu shortcuts for the normal desktop app, Browser Mode, port configuration, and logs. Use the normal **Solar Expanse Fleet Manager** shortcut first. If the app does not open, use **Solar Expanse Fleet Manager (Browser Mode)** to run the same local server in your browser, **Configure Fleet Manager Port** to change the port or strict-port behavior, and **Open Fleet Manager Logs** to inspect startup output.
+
+The installed app keeps local state under `%LOCALAPPDATA%\SolarExpanseFleetManager` and does not write to save files.
 
 ## Install From Source
 
@@ -27,7 +40,7 @@ Requires Python 3.11 or 3.12 x64.
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python app.py
+python desktop_launcher.py
 ```
 
 On Windows PowerShell:
@@ -36,13 +49,31 @@ On Windows PowerShell:
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python app.py
+python desktop_launcher.py
 ```
 
-The app starts a local NiceGUI server, usually at:
+The desktop launcher starts a local NiceGUI server and opens Fleet Manager in a standalone window when the platform supports `pywebview`. If the window cannot be created, it falls back to opening the app in your browser. If the server cannot start, the launcher shows a recovery window with the port config path, log path, and last server output. Direct browser/server mode is still available with `python app.py`.
+
+The tray menu can open the app, open the browser URL, copy the URL, restart or stop the local server, open logs, and open the port configuration file.
+
+The local server usually runs at:
 
 ```text
 http://localhost:8080
+```
+
+If port `8080` is already in use, the app does not stop or overwrite the existing listener. It starts on the next free nearby port and opens the resolved URL through the desktop launcher or browser mode. To choose a port manually:
+
+```powershell
+$env:FLEET_MANAGER_PORT="8090"
+python app.py
+```
+
+To make port contention fail fast instead of falling back:
+
+```powershell
+$env:FLEET_MANAGER_STRICT_PORT="1"
+python app.py
 ```
 
 ## Save Discovery

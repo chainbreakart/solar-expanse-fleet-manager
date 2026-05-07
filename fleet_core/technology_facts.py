@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from .fact_model import TechModifierFact, TechUnlockFact
-from .normalizer import extract_datetime, friendly_key, game_key, id_value, list_content, ref_value
+from .normalizer_utils import extract_datetime, friendly_key, game_key, id_value, list_content, ref_value
 
 
 RESEARCH_CATEGORY_PREFIXES: tuple[tuple[str, str], ...] = (

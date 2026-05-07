@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Any
 
 from fleet_core.analysis import SaveAnalysis
-from fleet_core.normalizer import fmt_num
+from fleet_core.normalizer_utils import fmt_num
 
 from .shared import TableModule, TableRow
 

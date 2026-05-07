@@ -1,3 +1,6 @@
 nicegui>=1.4.35
 plotly>=5.24
 networkx>=3.2
+pystray>=0.19
+pywebview>=5.0
+pillow>=10.0

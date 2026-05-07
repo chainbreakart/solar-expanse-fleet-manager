@@ -7,7 +7,8 @@ from nicegui import ui
 
 from fleet_core.analysis import SaveAnalysis
 from fleet_core.fact_model import TechAdjustedValue, TechReferenceRow
-from fleet_core.normalizer import fmt_num
+from fleet_core.normalizer_utils import fmt_num
+from fleet_modules.shared import data_tab_link
 
 
 unlock_columns = [
@@ -21,6 +22,7 @@ unlock_columns = [
     {"name": "modules", "label": "Modules", "field": "modules", "sortable": True, "align": "left"},
     {"name": "resources", "label": "Resources", "field": "resources", "sortable": True, "align": "left"},
     {"name": "modifiers", "label": "Modifiers", "field": "modifiers", "sortable": True, "align": "left"},
+    {"name": "audit", "label": "Audit", "field": "audit", "sortable": False, "align": "left"},
 ]
 
 active_columns = [
@@ -30,6 +32,7 @@ active_columns = [
     {"name": "category", "label": "Category", "field": "category", "sortable": True, "align": "left"},
     {"name": "progress", "label": "Progress", "field": "progress", "sortable": True, "align": "right"},
     {"name": "source", "label": "Source", "field": "source", "sortable": True, "align": "left"},
+    {"name": "audit", "label": "Audit", "field": "audit", "sortable": False, "align": "left"},
 ]
 
 used_modifier_columns = [
@@ -41,6 +44,15 @@ used_modifier_columns = [
     {"name": "adjusted", "label": "Adjusted", "field": "adjusted", "sortable": True, "align": "right"},
     {"name": "multiplier", "label": "Multiplier", "field": "multiplier", "sortable": True, "align": "right"},
     {"name": "confidence", "label": "Confidence", "field": "confidence", "sortable": True, "align": "left"},
+    {"name": "audit", "label": "Audit", "field": "audit", "sortable": False, "align": "left"},
+]
+
+diagnostic_columns = [
+    {"name": "severity", "label": "Severity", "field": "severity", "sortable": True, "align": "left"},
+    {"name": "title", "label": "Diagnostic", "field": "title", "sortable": True, "align": "left"},
+    {"name": "message", "label": "Message", "field": "message", "sortable": True, "align": "left"},
+    {"name": "source", "label": "Source", "field": "source", "sortable": True, "align": "left"},
+    {"name": "details", "label": "Details", "field": "details", "sortable": False, "align": "left"},
 ]
 
 
@@ -96,6 +108,13 @@ def technology_unlock_rows(analysis: SaveAnalysis) -> list[dict[str, Any]]:
                 "modifiers": modifier_summary(analysis, fact.research_id),
                 "source": fact.source_field,
                 "confidence": fact.confidence,
+                "audit": "Open",
+                "audit_url": data_tab_link(
+                    "technology_audit",
+                    company=fact.company,
+                    research_id=fact.research_id,
+                    status=fact.status,
+                ),
             }
         )
     return sorted(
@@ -126,6 +145,7 @@ def adjustment_row(
     target: str,
     adjustment: TechAdjustedValue,
 ) -> dict[str, Any]:
+    research_id = adjustment.basis.split(",")[0].strip()
     return {
         "key": f"{area}:{company}:{target}:{adjustment.basis}",
         "area": area,
@@ -137,6 +157,8 @@ def adjustment_row(
         "multiplier": f"{adjustment.multiplier:.2f}x" if adjustment.multiplier is not None else "",
         "source": adjustment.source,
         "confidence": adjustment.confidence,
+        "audit": "Open",
+        "audit_url": data_tab_link("technology_audit", company=company, research_id=research_id) if research_id else "",
     }
 
 
@@ -166,16 +188,33 @@ def used_modifier_rows(analysis: SaveAnalysis) -> list[dict[str, Any]]:
     return sorted(rows.values(), key=lambda row: (str(row["area"]), str(row["company"]), str(row["target"])))
 
 
+def technology_diagnostic_rows(analysis: SaveAnalysis) -> list[dict[str, Any]]:
+    return [
+        {
+            "key": row.attention_key,
+            "severity": row.severity,
+            "title": row.title,
+            "message": row.message,
+            "source": row.source,
+            "details": "; ".join(row.details[:3]),
+        }
+        for row in analysis.attention_rows
+        if row.category == "Technology"
+    ]
+
+
 def technology_kpis(analysis: SaveAnalysis) -> list[tuple[str, str, str]]:
     unlocks = technology_unlock_rows(analysis)
     completed = [row for row in unlocks if row["status"] == "Completed"]
     active = active_technology_rows(analysis)
     used = used_modifier_rows(analysis)
+    diagnostics = technology_diagnostic_rows(analysis)
     categories = {row["category"] for row in completed if row["category"]}
     return [
         ("Completed", fmt_num(len(completed)), f"{len(categories)} categories with completed research"),
         ("Active / Queued", fmt_num(len(active)), "Current save research work visible in save data"),
         ("Used Modifiers", fmt_num(len(used)), "Tech effects currently attached to planner facts"),
+        ("Diagnostics", fmt_num(len(diagnostics)), "Unknown research or reference-target gaps"),
         ("Reference Rows", fmt_num(len(analysis.technology_reference.rows)), f"{fmt_num(len(analysis.technology_reference.modifiers))} reference modifiers loaded"),
     ]
 
@@ -221,6 +260,15 @@ def render_table(title: str, columns: list[dict[str, object]], rows: list[dict[s
             return
         table = ui.table(columns=columns, rows=rows, row_key="key", pagination=pagination).classes("w-full")
         table.props("flat bordered dense wrap-cells")
+        if any(row.get("audit_url") for row in rows):
+            table.add_slot(
+                "body-cell-audit",
+                """
+                <q-td :props="props">
+                  <a v-if="props.row.audit_url" class="table-drilldown-link" :href="props.row.audit_url">Open</a>
+                </q-td>
+                """,
+            )
 
 
 def render_category_cards(rows: list[dict[str, Any]]) -> None:
@@ -242,12 +290,17 @@ def render_technology_dashboard(analysis: SaveAnalysis, container) -> None:
     unlocks = technology_unlock_rows(analysis)
     active = active_technology_rows(analysis)
     used_modifiers = used_modifier_rows(analysis)
+    diagnostics = technology_diagnostic_rows(analysis)
     categories = category_summary_rows(analysis)
 
     with container:
+        with ui.row().classes("audit-shortcut-row"):
+            ui.label("Audit").classes("overview-small-note")
+            ui.link("Technology audit", data_tab_link("technology_audit")).classes("table-drilldown-link")
         render_kpi_strip(technology_kpis(analysis))
         if categories:
             render_category_cards(categories)
+        render_table("Technology Reference Diagnostics", diagnostic_columns, diagnostics, pagination=6)
         render_table("Active Research", active_columns, active, pagination=8)
         render_table("Modifier Effects Used By Planner Math", used_modifier_columns, used_modifiers, pagination=10)
         render_table("Research Unlocks And Reference Effects", unlock_columns, unlocks, pagination=18)

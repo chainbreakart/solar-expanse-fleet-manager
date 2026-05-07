@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from fleet_core.analysis import SaveAnalysis
-from fleet_core.normalizer import fmt_num
+from fleet_core.normalizer_utils import fmt_num
 
-from .shared import TableModule, TableRow
+from .shared import TableModule, TableRow, data_tab_link, fleet_link
 
 
 columns = [
@@ -75,12 +75,17 @@ def build_rows(analysis: SaveAnalysis) -> list[TableRow]:
             {
                 "key": metric.return_key,
                 "company": metric.company,
+                "craft_id": metric.craft_id,
+                "fleet_url": fleet_link(craft=metric.craft_id),
                 "craft": metric.craft_name,
                 "type": metric.craft_type,
                 "status": metric.status,
                 "route": metric.route,
                 "arrival": metric.arrival,
                 "destination": metric.destination,
+                "destination_url": data_tab_link("bodies", object=metric.destination_id)
+                if metric.destination_id is not None
+                else data_tab_link("bodies"),
                 "fuel": metric.fuel_type,
                 "requirement": tons(metric.estimated_return_requirement),
                 "confidence": metric.return_requirement_confidence,
@@ -109,6 +114,16 @@ def build_metrics(_analysis: SaveAnalysis, rows: list[TableRow]) -> dict[str, st
 
 
 slots = {
+    "body-cell-craft": r"""
+        <q-td :props="props">
+            <a :href="props.row.fleet_url" class="table-drilldown-link">{{ props.row.craft }}</a>
+        </q-td>
+    """,
+    "body-cell-destination": r"""
+        <q-td :props="props">
+            <a :href="props.row.destination_url" class="table-drilldown-link">{{ props.row.destination }}</a>
+        </q-td>
+    """,
     "body-cell-warning": r"""
         <q-td :props="props">
             <span v-if="props.row.warning" class="warning-chip">

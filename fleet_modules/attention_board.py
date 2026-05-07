@@ -54,6 +54,8 @@ def build_metrics(_analysis: SaveAnalysis, rows: list[TableRow]) -> dict[str, st
         "fuel_attention_count": str(sum(1 for row in rows if row.get("category") == "Fuel")),
         "capacity_attention_count": str(sum(1 for row in rows if row.get("category") == "Capacity")),
         "population_attention_count": str(sum(1 for row in rows if row.get("category") == "Population")),
+        "cargo_attention_count": str(sum(1 for row in rows if row.get("category") == "Cargo")),
+        "technology_attention_count": str(sum(1 for row in rows if row.get("category") == "Technology")),
         "save_data_attention_count": str(sum(1 for row in rows if row.get("category") == "Save Data")),
         "critical_attention_count": str(sum(1 for row in rows if row.get("severity") == "Critical")),
     }

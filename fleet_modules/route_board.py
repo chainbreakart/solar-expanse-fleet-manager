@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from fleet_core.analysis import SaveAnalysis
-from fleet_core.normalizer import fmt_num
+from fleet_core.normalizer_utils import fmt_num
 
-from .shared import TableModule, TableRow
+from .shared import AUDIT_COLUMNS, TableModule, TableRow, fleet_link
 
 
 columns = [
@@ -24,6 +24,7 @@ columns = [
     {"name": "fuel_plan", "label": "Fuel Plan", "field": "fuel_plan", "sortable": False, "align": "left"},
     {"name": "warnings", "label": "Warnings", "field": "warnings", "sortable": False, "align": "left"},
     {"name": "cargo", "label": "Cargo", "field": "cargo", "sortable": False, "align": "left"},
+    *AUDIT_COLUMNS,
 ]
 
 
@@ -45,11 +46,15 @@ def build_rows(analysis: SaveAnalysis) -> list[TableRow]:
                 "next_arrival": metric.next_arrival,
                 "attention_count": metric.attention_count,
                 "craft": "; ".join(metric.assigned_craft),
+                "fleet_url": fleet_link(route=metric.route),
                 "cargo": "; ".join(metric.cargo_summaries),
                 "fuel_plan": "; ".join(metric.fuel_plan_summaries),
                 "capacity": "; ".join(metric.capacity_summaries),
                 "transfer": "; ".join(metric.transfers),
                 "warnings": "; ".join(metric.warnings),
+                "audit_source": "RouteMetric from CraftFact + CargoFact",
+                "confidence": "high" if metric.route else "medium",
+                "anomaly_destination": "Attention / Route Board" if metric.attention_count or metric.warnings else "Route Board",
             }
         )
     return result
@@ -60,4 +65,11 @@ MODULE = TableModule(
     label="Route Board",
     columns=columns,
     build_rows=build_rows,
+    slots={
+        "body-cell-craft": r"""
+            <q-td :props="props">
+                <a :href="props.row.fleet_url" class="table-drilldown-link">{{ props.row.craft }}</a>
+            </q-td>
+        """,
+    },
 )

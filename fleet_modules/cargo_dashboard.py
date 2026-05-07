@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlencode
 
+import plotly.graph_objects as go
 from nicegui import ui
 
 from fleet_core.analysis import SaveAnalysis
 from fleet_core.fact_model import CargoFlightMetric
-from fleet_core.normalizer import ROUTE_ACTIVE_STATUSES, ROUTE_PLANNED_STATUSES, fmt_num
+from fleet_core.normalizer_utils import ROUTE_ACTIVE_STATUSES, ROUTE_PLANNED_STATUSES, fmt_num
+from fleet_modules.shared import data_tab_link, fleet_link, resource_cell_slot, with_resource_icon
 
 
 manifest_columns = [
@@ -44,6 +46,12 @@ ARRIVAL_FILTER_NEXT_YEAR = "Next year"
 
 CargoKpis = list[tuple[str, str, str]]
 CargoKpiBuilder = Callable[[list[dict[str, Any]], list[dict[str, Any]]], CargoKpis]
+CARGO_FIGURE_COLORS = {
+    "support": "#43e6a0",
+    "other": "#35d8ff",
+    "fuel": "#ff9d2e",
+    "missing": "#ff5f6c",
+}
 
 
 def cargo_link(path: str, **params: object) -> str:
@@ -61,13 +69,78 @@ def compact_summary(totals: dict[str, float] | tuple[tuple[str, float], ...], *,
     return "; ".join(pieces)
 
 
+def chart_label(value: object, *, max_length: int = 34) -> str:
+    text = str(value).replace("Low Orbit of ", "LO ")
+    if len(text) <= max_length:
+        return text
+    return f"{text[: max_length - 3].rstrip()}..."
+
+
+def figure_layout(fig: go.Figure, *, height: int = 320) -> go.Figure:
+    fig.update_layout(
+        template="plotly_dark",
+        height=height,
+        margin={"l": 118, "r": 20, "t": 16, "b": 52},
+        font={"family": "Segoe UI, Arial, sans-serif", "size": 12, "color": "#d7f7ff"},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hoverlabel={"bgcolor": "#06131c", "bordercolor": "#35d8ff", "font": {"color": "#e8f7ff"}},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "font": {"size": 11},
+        },
+    )
+    fig.update_xaxes(
+        automargin=True,
+        color="#8fa7b5",
+        gridcolor="rgba(86,179,214,0.16)",
+        zerolinecolor="rgba(86,179,214,0.22)",
+        tickfont={"size": 10},
+    )
+    fig.update_yaxes(
+        automargin=True,
+        color="#8fa7b5",
+        gridcolor="rgba(86,179,214,0.16)",
+        zerolinecolor="rgba(86,179,214,0.22)",
+        tickfont={"size": 10},
+    )
+    return fig
+
+
+def empty_figure(note: str, *, height: int = 320) -> go.Figure:
+    fig = go.Figure()
+    fig.add_annotation(
+        text=note,
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        xref="paper",
+        yref="paper",
+        font={"size": 13, "color": "#8fa7b5"},
+    )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    return figure_layout(fig, height=height)
+
+
 def cargo_manifest_row(metric: CargoFlightMetric) -> dict[str, Any]:
+    fleet_url = (
+        fleet_link(craft=metric.craft_ids[0])
+        if len(metric.craft_ids) == 1
+        else fleet_link(mission=metric.mission_id or metric.mission_key)
+    )
     return {
         "key": metric.flight_key,
         "company": metric.company,
         "status": metric.status,
         "mission": metric.mission_id,
+        "craft_ids": ", ".join(str(craft_id) for craft_id in metric.craft_ids),
         "craft": ", ".join(metric.craft_names),
+        "fleet_url": fleet_url,
         "route": metric.route,
         "source_id": metric.source_id,
         "target_id": metric.target_id,
@@ -89,17 +162,20 @@ def cargo_manifest_row(metric: CargoFlightMetric) -> dict[str, Any]:
         "top_cargo": compact_summary(metric.cargo_totals),
         "kind_summary": ", ".join(f"{kind} {count}" for kind, count in metric.kind_counts),
         "details": [
-            {
-                "name": detail.name,
-                "kind": detail.kind,
-                "list": detail.list_label,
-                "mass": f"{fmt_num(detail.mass)}t",
-                "mass_value": detail.mass,
-                "resource": detail.resource_key,
-                "module": detail.module_key,
-                "support": detail.colonization_support_category,
-                "support_reason": detail.colonization_support_reason,
-            }
+            with_resource_icon(
+                {
+                    "name": detail.name,
+                    "kind": detail.kind,
+                    "list": detail.list_label,
+                    "mass": f"{fmt_num(detail.mass)}t",
+                    "mass_value": detail.mass,
+                    "resource_key": detail.resource_key,
+                    "resource": detail.name,
+                    "module": detail.module_key,
+                    "support": detail.colonization_support_category,
+                    "support_reason": detail.colonization_support_reason,
+                }
+            )
             for detail in metric.details
         ],
         "detail_count": len(metric.details),
@@ -108,6 +184,239 @@ def cargo_manifest_row(metric: CargoFlightMetric) -> dict[str, Any]:
 
 def cargo_manifest_rows(analysis: SaveAnalysis) -> list[dict[str, Any]]:
     return [cargo_manifest_row(metric) for metric in analysis.cargo_flight_metrics]
+
+
+def cargo_hub_brief(
+    analysis: SaveAnalysis,
+    rows: list[dict[str, Any]],
+    receipt_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    active_tons = sum(float(row["tons_value"]) for row in rows if row["status"] in ROUTE_ACTIVE_STATUSES)
+    planned_tons = sum(float(row["tons_value"]) for row in rows if row["status"] in ROUTE_PLANNED_STATUSES)
+    support_tons = sum(float(row["support_tons_value"]) for row in rows)
+    lanes = {str(row["route"]) for row in rows if row["route"]}
+    destinations = {str(row["destination"]) for row in rows if row["destination"]}
+    support_flights = sum(1 for row in rows if float(row["support_tons_value"]) > 0)
+    missing_evidence = sum(1 for row in receipt_rows if row["local_status"] == "Missing")
+    next_arrival = next_arrival_text(rows)
+
+    lane_label = "cargo lane" if len(lanes) == 1 else "cargo lanes"
+    if support_tons:
+        title = f"{fmt_num(support_tons)}t colony support across {fmt_num(len(lanes))} {lane_label}"
+    elif active_tons or planned_tons:
+        title = f"{fmt_num(active_tons + planned_tons)}t cargo assigned across {fmt_num(len(lanes))} {lane_label}"
+    else:
+        title = "No cargo web detected"
+
+    if missing_evidence:
+        posture = f"{fmt_num(missing_evidence)} receipt row(s) need local stock or production evidence."
+    elif support_tons:
+        posture = "Support cargo is tied to manifests, receipts, and production evidence where available."
+    elif rows:
+        posture = "Cargo is moving, but no colonization-support classification is present in the focused save."
+    else:
+        posture = "Copy or load a save with cargo missions to validate supply lanes and receipts."
+
+    return {
+        "title": title,
+        "posture": posture,
+        "stats": [
+            ("Active cargo", f"{fmt_num(active_tons)}t"),
+            ("Planned cargo", f"{fmt_num(planned_tons)}t"),
+            ("Destinations", fmt_num(len(destinations))),
+            ("Next arrival", next_arrival),
+        ],
+        "scope": analysis.player_company or ", ".join(sorted(analysis.active_companies)) or "No company detected",
+        "support_flights": support_flights,
+    }
+
+
+def cargo_lane_rows(rows: list[dict[str, Any]], *, limit: int = 8) -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        route = str(row["route"] or "Unknown route")
+        group = groups.setdefault(
+            route,
+            {
+                "route": route,
+                "tons": 0.0,
+                "support_tons": 0.0,
+                "missions": set(),
+                "next_arrival": "",
+                "next_arrival_dt": None,
+                "items": defaultdict(float),
+            },
+        )
+        group["tons"] = float(group["tons"]) + float(row["tons_value"])
+        group["support_tons"] = float(group["support_tons"]) + float(row["support_tons_value"])
+        if row["mission"]:
+            group["missions"].add(str(row["mission"]))
+        arrival_dt = row.get("arrival_dt")
+        if arrival_dt is not None and (group["next_arrival_dt"] is None or arrival_dt < group["next_arrival_dt"]):
+            group["next_arrival_dt"] = arrival_dt
+            group["next_arrival"] = row["arrival"]
+        elif row["arrival"] and not group["next_arrival"]:
+            group["next_arrival"] = row["arrival"]
+        for detail in row["details"]:
+            group["items"][str(detail["name"])] += float(detail["mass_value"])
+
+    lane_rows: list[dict[str, Any]] = []
+    for group in groups.values():
+        lane_rows.append(
+            {
+                "route": group["route"],
+                "route_label": chart_label(group["route"]),
+                "tons": float(group["tons"]),
+                "other_tons": max(float(group["tons"]) - float(group["support_tons"]), 0.0),
+                "support_tons": float(group["support_tons"]),
+                "missions": len(group["missions"]),
+                "next_arrival": group["next_arrival"] or "-",
+                "items": compact_summary(group["items"], limit=3) or "No item detail",
+            }
+        )
+    return sorted(lane_rows, key=lambda row: (-float(row["support_tons"]), -float(row["tons"]), str(row["route"])))[:limit]
+
+
+def support_mix_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    totals: dict[str, float] = defaultdict(float)
+    for row in rows:
+        for detail in row["details"]:
+            if detail["support"]:
+                totals[str(detail["support"])] += float(detail["mass_value"])
+    return [
+        {"category": category, "tons": tons, "category_label": chart_label(category, max_length=24)}
+        for category, tons in sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def receipt_watch_rows(receipt_rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, str]]:
+    status_rank = {"Missing": 0, "Critical": 1, "Urgent": 2, "Warning": 3, "Monitor": 4, "Stable": 5, "Module": 6}
+    watched = sorted(
+        receipt_rows,
+        key=lambda row: (
+            status_rank.get(str(row["local_status"]), 9),
+            -float(row["tons_value"]),
+            str(row["destination"]),
+            str(row["item"]),
+        ),
+    )[:limit]
+    return [
+        {
+            "status": str(row["local_status"]),
+            "destination": str(row["destination"]),
+            "item": str(row["item"]),
+            "message": f"{row['tons']} inbound across {row['flights']} flight(s); next {row['next_arrival']}",
+            "detail": str(row["production_read"]),
+            "url": cargo_link("/cargo/receipts", destination=row["destination"], item=row["item"]),
+        }
+        for row in watched
+    ]
+
+
+def cargo_hub_cards(rows: list[dict[str, Any]], receipt_rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    active_rows = [row for row in rows if row["status"] in ROUTE_ACTIVE_STATUSES]
+    support_tons = sum(float(row["support_tons_value"]) for row in rows)
+    support_flights = sum(1 for row in rows if float(row["support_tons_value"]) > 0)
+    destinations = {str(row["destination"]) for row in receipt_rows if row["destination"]}
+    local_evidence = sum(1 for row in receipt_rows if row["has_production_evidence"])
+    detail_count = sum(len(row["details"]) for row in rows)
+    item_count = sum(int(row["items"]) for row in rows)
+    return [
+        {
+            "title": "Supply Lines",
+            "value": fmt_num(len({row["route"] for row in rows if row["route"]})),
+            "copy": f"{fmt_num(len(active_rows))} active/cyclical cargo flight(s) on the board.",
+            "url": "/cargo/movement",
+            "audit_url": data_tab_link("cargo_audit"),
+        },
+        {
+            "title": "Colony Support",
+            "value": f"{fmt_num(support_tons)}t",
+            "copy": f"{fmt_num(support_flights)} flight(s) carry cargo classified for settlement prep.",
+            "url": cargo_link("/cargo/manifests", support=SUPPORT_FILTER_ANY),
+            "audit_url": data_tab_link("cargo_audit"),
+        },
+        {
+            "title": "Receipts",
+            "value": fmt_num(len(destinations)),
+            "copy": f"{fmt_num(local_evidence)} of {fmt_num(len(receipt_rows))} receipt row(s) have local production evidence.",
+            "url": "/cargo/receipts",
+            "audit_url": data_tab_link("cargo_audit"),
+        },
+        {
+            "title": "Manifests",
+            "value": fmt_num(item_count),
+            "copy": f"{fmt_num(detail_count)} expandable cargo detail line(s) across grouped manifests.",
+            "url": "/cargo/manifests",
+            "audit_url": data_tab_link("cargo_audit"),
+        },
+    ]
+
+
+def cargo_lane_load_figure(lane_rows: list[dict[str, Any]]) -> go.Figure:
+    if not lane_rows:
+        return empty_figure("No active or planned cargo lanes were detected.")
+    labels = [row["route_label"] for row in lane_rows]
+    customdata = [
+        [row["route"], row["missions"], row["next_arrival"], row["items"], row["support_tons"], row["tons"]]
+        for row in lane_rows
+    ]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            name="Colony support",
+            x=[row["support_tons"] for row in lane_rows],
+            y=labels,
+            orientation="h",
+            marker_color=CARGO_FIGURE_COLORS["support"],
+            customdata=customdata,
+            hovertemplate=(
+                "%{customdata[0]}<br>%{x:.1f}t support cargo"
+                "<br>%{customdata[1]} mission(s)"
+                "<br>Next arrival %{customdata[2]}"
+                "<br>%{customdata[3]}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            name="Other cargo",
+            x=[row["other_tons"] for row in lane_rows],
+            y=labels,
+            orientation="h",
+            marker_color=CARGO_FIGURE_COLORS["other"],
+            customdata=customdata,
+            hovertemplate=(
+                "%{customdata[0]}<br>%{x:.1f}t other cargo"
+                "<br>%{customdata[5]:.1f}t total"
+                "<br>%{customdata[1]} mission(s)"
+                "<br>Next arrival %{customdata[2]}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(barmode="stack", showlegend=True)
+    fig.update_yaxes(autorange="reversed")
+    fig.update_xaxes(title="Cargo tons")
+    return figure_layout(fig, height=330)
+
+
+def support_mix_figure(rows: list[dict[str, Any]]) -> go.Figure:
+    mix_rows = support_mix_rows(rows)
+    if not mix_rows:
+        return empty_figure("No colony-support cargo classifications are visible in this save.")
+    fig = go.Figure(
+        go.Bar(
+            x=[row["tons"] for row in mix_rows],
+            y=[row["category_label"] for row in mix_rows],
+            orientation="h",
+            marker_color=CARGO_FIGURE_COLORS["support"],
+            customdata=[[row["category"], row["tons"]] for row in mix_rows],
+            hovertemplate="%{customdata[0]}<br>%{customdata[1]:.1f}t<extra></extra>",
+        )
+    )
+    fig.update_yaxes(autorange="reversed")
+    fig.update_xaxes(title="Support cargo tons")
+    return figure_layout(fig, height=300)
 
 
 def cargo_kpis(rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
@@ -370,7 +679,7 @@ def destination_receipt_rows(
         destination = str(row["destination"] or "Unknown destination")
         for detail in row["details"]:
             item = str(detail["name"])
-            resource_key = str(detail["resource"] or "")
+            resource_key = str(detail["resource_key"] or "")
             module_key = str(detail["module"] or "")
             group = groups.setdefault(
                 (str(row["company"]), destination, item, resource_key or module_key),
@@ -384,12 +693,22 @@ def destination_receipt_rows(
                     "module_key": module_key,
                     "tons_value": 0.0,
                     "flights": set(),
+                    "missions": set(),
+                    "craft_ids": set(),
+                    "craft": set(),
                     "support_categories": defaultdict(float),
                     "next_arrival": "",
                 },
             )
             group["tons_value"] = float(group["tons_value"]) + float(detail["mass_value"])
             group["flights"].add(row["key"])
+            if row["mission"]:
+                group["missions"].add(str(row["mission"]))
+            for craft_id in str(row.get("craft_ids") or "").split(","):
+                if craft_id.strip():
+                    group["craft_ids"].add(craft_id.strip())
+            if row["craft"]:
+                group["craft"].add(str(row["craft"]))
             if detail["support"]:
                 group["support_categories"][str(detail["support"])] += float(detail["mass_value"])
             if row["arrival"] and (not group["next_arrival"] or row["arrival"] < group["next_arrival"]):
@@ -397,28 +716,47 @@ def destination_receipt_rows(
 
     receipt_rows: list[dict[str, Any]] = []
     for group in groups.values():
+        missions = sorted(group["missions"])
+        craft_ids = sorted(group["craft_ids"], key=lambda value: int(value) if value.isdigit() else value)
+        craft_names = sorted(group["craft"])
+        fleet_url = (
+            fleet_link(craft=craft_ids[0])
+            if len(craft_ids) == 1
+            else fleet_link(mission=missions[0])
+            if missions
+            else fleet_link(company=group["company"], object=group["target_id"])
+        )
         local = {}
+        production_link = ""
         if isinstance(group["target_id"], int) and group["resource_key"]:
+            production_link = data_tab_link(
+                "production_audit",
+                company=group["company"],
+                object=group["target_id"],
+                resource=group["resource_key"],
+            )
             local = evidence.get((str(group["company"]), int(group["target_id"]), str(group["resource_key"])), {})
         if local:
             production_read = f"{local['stock']} local; {local['net']} net; runway {local['runway']}"
-            production_link = "/production"
             local_status = str(local["status"])
         elif group["resource_key"]:
             production_read = "No local stock/flow row"
-            production_link = "/production"
             local_status = "Missing"
         else:
             production_read = "No production join for module cargo"
-            production_link = ""
             local_status = "Module"
         receipt_rows.append(
-            {
+            with_resource_icon(
+                {
                 "key": group["key"],
                 "company": group["company"],
                 "target_id": group["target_id"],
                 "destination": group["destination"],
                 "item": group["item"],
+                "resource_key": group["resource_key"],
+                "craft": "; ".join(craft_names) or "-",
+                "craft_ids": ", ".join(craft_ids),
+                "fleet_url": fleet_url,
                 "tons_value": group["tons_value"],
                 "tons": f"{fmt_num(group['tons_value'])}t",
                 "flights": len(group["flights"]),
@@ -431,7 +769,10 @@ def destination_receipt_rows(
                 "production_read": production_read,
                 "production_link": production_link,
                 "has_production_evidence": bool(local),
-            }
+                },
+                resource_label_field="item",
+                prefix="item",
+            )
         )
     return sorted(receipt_rows, key=lambda row: (-float(row["tons_value"]), str(row["destination"]), str(row["item"])))
 
@@ -522,7 +863,11 @@ def destination_cargo_evidence_rows(
                 "receipts_link": cargo_link("/cargo/receipts", **link_params),
                 "manifests_link": cargo_link("/cargo/manifests", **link_params),
                 "mission_link": mission_link,
-                "production_link": "/production",
+                "production_link": (
+                    data_tab_link("production_audit", company=company, object=group["target_id"])
+                    if isinstance(group["target_id"], int)
+                    else data_tab_link("production_audit", company=company)
+                ),
             }
         )
     return sorted(
@@ -543,6 +888,15 @@ def render_destination_receipts_table(rows: list[dict[str, Any]]) -> None:
         ui.label("Destination Receipts").classes("dashboard-card-title")
         table = ui.table(columns=receipt_columns, rows=rows, row_key="key", pagination=8).classes("w-full")
         table.props("flat bordered dense wrap-cells")
+        table.add_slot("body-cell-item", resource_cell_slot("item"))
+        table.add_slot(
+            "body-cell-craft",
+            r"""
+            <q-td :props="props">
+                <a :href="props.row.fleet_url" class="table-drilldown-link">{{ props.row.craft }}</a>
+            </q-td>
+            """,
+        )
         table.add_slot(
             "body-cell-production",
             r"""
@@ -608,6 +962,7 @@ schedule_columns = [
 receipt_columns = [
     {"name": "destination", "label": "Destination", "field": "destination", "sortable": True, "align": "left"},
     {"name": "item", "label": "Item", "field": "item", "sortable": True, "align": "left"},
+    {"name": "craft", "label": "Craft", "field": "craft", "sortable": True, "align": "left"},
     {"name": "tons", "label": "Tons", "field": "tons", "sortable": True, "align": "right"},
     {"name": "flights", "label": "Flights", "field": "flights", "sortable": True, "align": "right"},
     {"name": "support", "label": "Support", "field": "support", "sortable": True, "align": "left"},
@@ -649,7 +1004,9 @@ manifest_slots = {
             <q-td key="company" :props="props">{{ props.row.company }}</q-td>
             <q-td key="status" :props="props">{{ props.row.status }}</q-td>
             <q-td key="mission" :props="props">{{ props.row.mission }}</q-td>
-            <q-td key="craft" :props="props">{{ props.row.craft }}</q-td>
+            <q-td key="craft" :props="props">
+                <a :href="props.row.fleet_url" class="table-drilldown-link">{{ props.row.craft }}</a>
+            </q-td>
             <q-td key="route" :props="props">{{ props.row.route }}</q-td>
             <q-td key="departure" :props="props">{{ props.row.departure }}</q-td>
             <q-td key="arrival" :props="props">{{ props.row.arrival }}</q-td>
@@ -674,7 +1031,17 @@ manifest_slots = {
                         :key="detail.name + detail.kind + detail.list + detail.mass"
                         class="cargo-detail-row"
                     >
-                        <div>{{ detail.name }}</div>
+                        <div>
+                            <span v-if="detail.resource_icon" class="resource-glyph-cell" :aria-label="detail.resource_title">
+                                <img class="resource-glyph" :src="detail.resource_icon" :alt="detail.resource_label" />
+                                <span class="resource-glyph-fallback">{{ detail.resource_label }}</span>
+                                <q-tooltip class="return-fuel-tooltip" anchor="top middle" self="bottom middle" :offset="[0, 8]">
+                                    <div class="return-fuel-tooltip-title">{{ detail.resource_label }}</div>
+                                    <div class="return-fuel-tooltip-line">{{ detail.resource_key }}</div>
+                                </q-tooltip>
+                            </span>
+                            <span v-else>{{ detail.name }}</span>
+                        </div>
                         <div>{{ detail.kind }}</div>
                         <div>
                             <span v-if="detail.support">
@@ -825,20 +1192,65 @@ def render_cargo_section_links() -> None:
                 ui.label(copy).classes("section-card-copy")
 
 
+def render_chart_card(title: str, fig: go.Figure) -> None:
+    fig.update_layout(title=None)
+    with ui.element("div").classes("dashboard-card viz-card"):
+        ui.label(title).classes("dashboard-card-title viz-card-title")
+        ui.plotly(fig).classes("viz-plot")
+
+
 def render_cargo_dashboard(analysis: SaveAnalysis, container: ui.element) -> None:
     container.clear()
     rows = cargo_manifest_rows(analysis)
+    production_evidence = production_evidence_lookup(analysis)
+    receipt_rows = destination_receipt_rows(rows, production_evidence)
+    brief = cargo_hub_brief(analysis, rows, receipt_rows)
+    lane_rows = cargo_lane_rows(rows)
+    watch_rows = receipt_watch_rows(receipt_rows)
+    cards = cargo_hub_cards(rows, receipt_rows)
     with container:
-        with ui.row().classes("dashboard-title-row"):
-            with ui.column().classes("gap-0"):
-                ui.label("Cargo Overview").classes("text-xl font-semibold")
-                ui.label("Compact cargo status with links into movement, receipt, and manifest workflows.").classes(
-                    "text-sm text-slate-600"
-                )
-        render_kpis(cargo_kpis(rows))
-        render_cargo_section_links()
-        ui.label("Largest Cargo Lanes").classes("dashboard-card-title")
-        render_route_cards(rows)
+        with ui.element("div").classes("overview-command-grid cargo-hub-command-grid"):
+            with ui.element("div").classes("command-brief-panel"):
+                ui.label("Cargo Brief").classes("command-brief-label")
+                ui.label(brief["title"]).classes("command-brief-title")
+                ui.label(brief["posture"]).classes("command-brief-copy")
+                ui.label(f"Scope: {brief['scope']}").classes("command-brief-scope")
+                ui.link("Open cargo audit", data_tab_link("cargo_audit")).classes("table-drilldown-link")
+                with ui.element("div").classes("command-brief-stats"):
+                    for label, value in brief["stats"]:
+                        with ui.element("div").classes("command-brief-stat"):
+                            ui.label(label).classes("command-brief-stat-label")
+                            ui.label(value).classes("command-brief-stat-value")
+            render_chart_card("Cargo Lane Load", cargo_lane_load_figure(lane_rows))
+
+        with ui.element("div").classes("overview-visual-grid cargo-hub-visual-grid"):
+            render_chart_card("Colony Support Mix", support_mix_figure(rows))
+            with ui.element("div").classes("dashboard-card overview-queue-card"):
+                with ui.row().classes("dashboard-title-row"):
+                    ui.label("Receipt Watch").classes("dashboard-card-title")
+                    ui.link("Open receipts", "/cargo/receipts").classes("table-drilldown-link")
+                if watch_rows:
+                    with ui.element("div").classes("overview-queue-list"):
+                        for row in watch_rows:
+                            severity_class = "urgent" if row["status"] in {"Missing", "Critical", "Urgent"} else "monitor"
+                            with ui.link(target=row["url"]).classes("overview-queue-row"):
+                                ui.label(row["status"]).classes(f"overview-severity overview-severity-{severity_class}")
+                                with ui.element("div").classes("overview-queue-copy"):
+                                    ui.label(f"{row['destination']} · {row['item']}").classes("overview-queue-title")
+                                    ui.label(row["message"]).classes("overview-queue-message")
+                                    ui.label(row["detail"]).classes("overview-queue-message")
+                else:
+                    ui.label("No receipt rows for active or planned cargo in the focused save.").classes("empty-state-note")
+
+        with ui.element("div").classes("overview-domain-grid cargo-hub-domain-grid"):
+            for card in cards:
+                with ui.element("div").classes("section-card overview-domain-card"):
+                    ui.label(card["title"]).classes("section-card-title")
+                    ui.label(card["value"]).classes("overview-domain-value")
+                    ui.label(card["copy"]).classes("section-card-copy")
+                    with ui.row().classes("gap-2 mt-3"):
+                        ui.link("Open", card["url"]).classes("section-link inline-flex")
+                        ui.link("Audit", card["audit_url"]).classes("table-drilldown-link")
 
 
 def render_cargo_filtered_dashboard(

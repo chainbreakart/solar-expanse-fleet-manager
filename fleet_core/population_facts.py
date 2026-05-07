@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .fact_model import (
+    CargoFact,
     CrewMetric,
     MissionFact,
     ObjectFact,
@@ -14,22 +15,19 @@ from .fact_model import (
     PopulationPlaceMetric,
     PopulationReadinessMetric,
     ResourceStockFact,
+    TechReferenceCatalog,
+    TechUnlockFact,
 )
-from .normalizer import (
-    HUMAN_RESOURCE_KEY,
-    SUPPLY_RESOURCE_KEY,
-    effective_supply_modifier,
-    fmt_num,
-    fmt_rate,
-    housing_capacity_for_row,
-    load_habitat_capacity_map,
-    modeled_surface_supply_demand,
-    object_company_rows,
-    stock_fact_lookup,
-    supply_runway_severity,
-)
+from .normalizer_utils import as_float, fmt_num, fmt_rate, game_key, id_value, list_content
+from .technology_adjustments import life_support_consumption_adjustment, unlocked_reference_modifiers
 
 STATUS_RANK = {"Safe": 0, "Monitor": 1, "Warning": 2, "Urgent": 3, "Critical": 4}
+CREW_METRIC_STATUSES = {"En route", "Cyclical", "Planned", "Cyclical paused"}
+SUPPLY_RESOURCE_KEY = "id_resource_supply"
+HUMAN_RESOURCE_KEY = "id_resource_human"
+SURFACE_LIFE_SUPPORT_MULTIPLIER = 5.0
+CREW_IN_HABITATS_LIFE_SUPPORT_MULTIPLIER = 0.5
+SUPPLY_TO_LIFE_SUPPORT_MULTIPLIER = 365.0
 
 
 def runway_label(days: float | None, projected_net: float) -> str:
@@ -53,6 +51,329 @@ def object_label(object_facts: dict[int, ObjectFact], object_id: int | None) -> 
         return ""
     fact = object_facts.get(object_id)
     return fact.label if fact else f"Object {object_id}"
+
+
+def load_habitat_capacity_map(repo_root: Path) -> dict[str, float]:
+    capacities: dict[str, float] = {}
+    path = repo_root / "data" / "derived" / "population" / "habitat_capacities.csv"
+    if not path.exists():
+        return capacities
+    import csv
+
+    with path.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("context") == "Transport":
+                continue
+            key = row.get("game_key") or ""
+            try:
+                capacity = float(row.get("capacity_per_unit") or 0.0)
+            except ValueError:
+                capacity = 0.0
+            if key and capacity and capacity > 0:
+                capacities[key] = capacity
+    return capacities
+
+
+def object_company_rows(save: dict[str, Any], included_companies: set[str] | None = None) -> dict[tuple[str, int], dict[str, Any]]:
+    rows: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in list_content(save.get("objectInfoDatas")):
+        if not isinstance(row, dict):
+            continue
+        company = str(id_value(row.get("companyId"), ""))
+        object_id = row.get("id") if isinstance(row.get("id"), int) else None
+        if not company or object_id is None:
+            continue
+        if included_companies is not None and company not in included_companies:
+            continue
+        rows[(company, object_id)] = row
+    return rows
+
+
+def facility_descriptor_key(item: dict[str, Any]) -> str:
+    return game_key(item.get("facilityDescriptor") or item.get("productionItemType") or item.get("idProductionItemType"))
+
+
+def facility_quantity(item: dict[str, Any]) -> float:
+    for key in ("enabled", "quantity"):
+        value = as_float(item.get(key))
+        if value and value > 0:
+            return value
+    return 1.0
+
+
+def housing_capacity_from_items(
+    items: list[Any],
+    habitat_capacities: dict[str, float],
+) -> tuple[float, float]:
+    completed = 0.0
+    queued = 0.0
+    seen: set[int] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        if isinstance(item_id, int):
+            if item_id in seen:
+                continue
+            seen.add(item_id)
+        capacity_per_unit = habitat_capacities.get(facility_descriptor_key(item))
+        if not capacity_per_unit:
+            continue
+        multiplier = as_float(item.get("singlePowerProductionMultiplier")) or 1.0
+        capacity = capacity_per_unit * facility_quantity(item) * multiplier
+        build_progress = as_float(item.get("buildProgress"))
+        if build_progress is not None and build_progress < 1.0:
+            queued += capacity
+        else:
+            completed += capacity
+    return completed, queued
+
+
+def housing_capacity_for_row(row: dict[str, Any] | None, habitat_capacities: dict[str, float]) -> tuple[float, float]:
+    if not isinstance(row, dict):
+        return 0.0, 0.0
+    items = list_content(row.get("listFacility")) + list_content(row.get("productionItems"))
+    return housing_capacity_from_items(items, habitat_capacities)
+
+
+def explicit_cargo_quantity(raw: dict[str, Any]) -> float:
+    for key in ("quantity", "count"):
+        quantity = as_float(raw.get(key))
+        if quantity and quantity > 0:
+            return quantity
+    return 1.0
+
+
+def arriving_habitat_capacity(cargo: CargoFact, habitat_capacities: dict[str, float]) -> float:
+    capacity = habitat_capacities.get(cargo.module_key) or habitat_capacities.get(cargo.resource_key)
+    if not capacity:
+        return 0.0
+    return capacity * explicit_cargo_quantity(cargo.raw)
+
+
+def stock_fact_lookup(resource_stock_facts: list[ResourceStockFact]) -> dict[tuple[str, int, str], ResourceStockFact]:
+    lookup: dict[tuple[str, int, str], ResourceStockFact] = {}
+    for stock in resource_stock_facts:
+        lookup[(stock.company, stock.object_id, stock.resource_key)] = stock
+    return lookup
+
+
+def modeled_surface_supply_demand(population: float, housing_capacity: float) -> float:
+    population = max(population, 0.0)
+    unhoused = max(population - max(housing_capacity, 0.0), 0.0)
+    life_support = (
+        population * CREW_IN_HABITATS_LIFE_SUPPORT_MULTIPLIER
+        + unhoused
+    ) / SURFACE_LIFE_SUPPORT_MULTIPLIER
+    return life_support / SUPPLY_TO_LIFE_SUPPORT_MULTIPLIER
+
+
+def effective_supply_modifier(saved_outtake: float, base_modeled_demand: float) -> tuple[float, str]:
+    if saved_outtake > 0 and base_modeled_demand > 0:
+        modifier = max(saved_outtake / base_modeled_demand, 0.0)
+        return modifier, "derived from saved Supply outTake / base modeled current population demand"
+    return 1.0, "default 1.0; no current saved population burn to derive local modifier"
+
+
+def population_severity_rank(severity: str) -> int:
+    return {"Safe": 0, "Monitor": 1, "Warning": 2, "Urgent": 3, "Critical": 4}.get(severity, 0)
+
+
+def stronger_population_severity(left: str, right: str) -> str:
+    return left if population_severity_rank(left) >= population_severity_rank(right) else right
+
+
+def supply_runway_severity(runway_days: float | None, projected_net: float) -> str:
+    if projected_net >= 0 or runway_days is None:
+        return "Safe"
+    if runway_days < 365.0 / 2.0:
+        return "Critical"
+    if runway_days < 365.0:
+        return "Urgent"
+    if runway_days < 365.0 * 2.0:
+        return "Warning"
+    return "Monitor"
+
+
+def build_population_readiness_details(
+    *,
+    destination: str,
+    inbound_people: int,
+    current_population: float,
+    projected_population: float,
+    completed_housing: float,
+    queued_housing: float,
+    arriving_housing: float,
+    housing_gap: float,
+    supply_stock: float,
+    supply_intake: float,
+    supply_outtake: float,
+    effective_modifier: float,
+    modifier_basis: str,
+    added_supply_demand: float,
+    projected_outtake: float,
+    projected_net: float,
+    runway_days: float | None,
+) -> tuple[str, ...]:
+    return (
+        f"Destination: {destination}",
+        f"People: {fmt_num(current_population)} current + {inbound_people} inbound = {fmt_num(projected_population)} projected",
+        f"Housing: {fmt_num(completed_housing)} ready + {fmt_num(queued_housing)} queued + {fmt_num(arriving_housing)} arriving; gap {fmt_num(housing_gap)}",
+        f"Supply stock: {fmt_num(supply_stock)}t",
+        f"Supply flow: +{fmt_rate(supply_intake)}t/day production, -{fmt_rate(supply_outtake)}t/day current use",
+        f"Local Supply modifier: {fmt_rate(effective_modifier)}x ({modifier_basis})",
+        f"Inbound population demand estimate: -{fmt_rate(added_supply_demand)}t/day",
+        f"Projected net supply: {fmt_rate(projected_net)}t/day; runway {runway_label(runway_days, projected_net)}",
+        "Runway uses current save stock/intake/outtake plus local-modified marginal housed/unhoused population consumption.",
+    )
+
+
+def build_population_readiness_metrics(
+    save: dict[str, Any],
+    repo_root: Path,
+    cargo_facts: list[CargoFact],
+    mission_facts: list[MissionFact],
+    resource_stock_facts: list[ResourceStockFact],
+    object_facts: dict[int, ObjectFact],
+    included_companies: set[str] | None = None,
+    technology_reference: TechReferenceCatalog | None = None,
+    tech_unlock_facts: list[TechUnlockFact] | None = None,
+) -> list[PopulationReadinessMetric]:
+    habitat_capacities = load_habitat_capacity_map(repo_root)
+    object_rows = object_company_rows(save, included_companies)
+    stocks = stock_fact_lookup(resource_stock_facts)
+    mission_by_key = {mission.mission_key: mission for mission in mission_facts}
+
+    people_by_mission: dict[str, int] = {}
+    people_by_destination: dict[tuple[str, int], int] = {}
+    for cargo in cargo_facts:
+        if cargo.source_type != "mission" or cargo.mission_status not in CREW_METRIC_STATUSES:
+            continue
+        if cargo.cargo_kind not in {"human", "crew_module"} or cargo.people <= 0:
+            continue
+        mission = mission_by_key.get(cargo.mission_key)
+        if not mission or mission.target_id is None:
+            continue
+        people_by_mission[cargo.mission_key] = people_by_mission.get(cargo.mission_key, 0) + cargo.people
+        key = (cargo.company, mission.target_id)
+        people_by_destination[key] = people_by_destination.get(key, 0) + cargo.people
+
+    metrics: list[PopulationReadinessMetric] = []
+    for mission_key, mission_people in sorted(people_by_mission.items()):
+        mission = mission_by_key.get(mission_key)
+        if not mission or mission.target_id is None:
+            continue
+        destination_id = mission.target_id
+        destination = object_facts.get(destination_id).label if destination_id in object_facts else object_label(object_facts, destination_id)
+        inbound_people = people_by_destination.get((mission.company, destination_id), mission_people)
+        object_row = object_rows.get((mission.company, destination_id))
+        completed_housing, queued_housing = housing_capacity_for_row(object_row, habitat_capacities)
+        arriving_housing = 0.0
+        for cargo in cargo_facts:
+            if cargo.source_type != "mission" or cargo.mission_status not in CREW_METRIC_STATUSES:
+                continue
+            cargo_mission = mission_by_key.get(cargo.mission_key)
+            if not cargo_mission or cargo_mission.company != mission.company or cargo_mission.target_id != destination_id:
+                continue
+            if cargo.arrival_dt and mission.arrival_dt and cargo.arrival_dt > mission.arrival_dt:
+                continue
+            arriving_housing += arriving_habitat_capacity(cargo, habitat_capacities)
+
+        human_stock = stocks.get((mission.company, destination_id, HUMAN_RESOURCE_KEY))
+        supply_stock = stocks.get((mission.company, destination_id, SUPPLY_RESOURCE_KEY))
+        current_population = human_stock.value if human_stock else 0.0
+        projected_population = current_population + inbound_people
+        projected_housing = completed_housing + queued_housing + arriving_housing
+        housing_gap = max(projected_population - projected_housing, 0.0)
+
+        supply_value = supply_stock.value if supply_stock else 0.0
+        supply_intake = supply_stock.intake if supply_stock else 0.0
+        supply_outtake = supply_stock.outtake if supply_stock else 0.0
+        current_modeled_supply = modeled_surface_supply_demand(current_population, completed_housing)
+        projected_modeled_supply = modeled_surface_supply_demand(projected_population, projected_housing)
+        supply_modifier, supply_modifier_basis = effective_supply_modifier(supply_outtake, current_modeled_supply)
+        raw_added_supply_demand = max(projected_modeled_supply - current_modeled_supply, 0.0) * supply_modifier
+        unlocked_modifiers = unlocked_reference_modifiers(technology_reference, tech_unlock_facts, mission.company)
+        added_supply_demand, supply_tech_adjustment = life_support_consumption_adjustment(
+            unlocked_modifiers,
+            raw_demand=raw_added_supply_demand,
+            apply_to_saved_outtake=supply_modifier_basis.startswith("derived from saved"),
+        )
+        if supply_tech_adjustment:
+            supply_modifier_basis = f"{supply_modifier_basis}; tech {supply_tech_adjustment.basis}"
+        projected_outtake = supply_outtake + added_supply_demand
+        projected_net = supply_intake - projected_outtake
+        runway_days = supply_value / abs(projected_net) if projected_net < 0 else None
+
+        severity = supply_runway_severity(runway_days, projected_net)
+        messages: list[str] = []
+        if severity != "Safe":
+            messages.append(f"supply runway {runway_label(runway_days, projected_net)}")
+        if housing_gap > 0:
+            housing_severity = "Critical" if completed_housing + queued_housing <= 0 else "Urgent"
+            severity = stronger_population_severity(severity, housing_severity)
+            messages.append(f"housing short {fmt_num(housing_gap)}")
+        elif projected_population > completed_housing and queued_housing > 0:
+            severity = stronger_population_severity(severity, "Warning")
+            messages.append("housing depends on build queue")
+
+        status = severity
+        if status == "Safe":
+            message = "Safe: housing and supply runway look adequate"
+        else:
+            message = f"{status}: " + "; ".join(messages)
+
+        metrics.append(
+            PopulationReadinessMetric(
+                readiness_key=mission_key,
+                company=mission.company,
+                mission_key=mission_key,
+                destination_id=destination_id,
+                destination=destination,
+                inbound_people=inbound_people,
+                current_population=current_population,
+                projected_population=projected_population,
+                completed_housing=completed_housing,
+                queued_housing=queued_housing,
+                arriving_housing=arriving_housing,
+                housing_gap=housing_gap,
+                supply_stock=supply_value,
+                supply_intake_per_day=supply_intake,
+                supply_outtake_per_day=supply_outtake,
+                effective_supply_modifier=supply_modifier,
+                supply_modifier_basis=supply_modifier_basis,
+                added_supply_demand_per_day=added_supply_demand,
+                raw_added_supply_demand_per_day=raw_added_supply_demand,
+                projected_supply_outtake_per_day=projected_outtake,
+                projected_supply_net_per_day=projected_net,
+                supply_runway_days=runway_days,
+                severity=severity,
+                status=status,
+                message=message,
+                details=build_population_readiness_details(
+                    destination=destination,
+                    inbound_people=inbound_people,
+                    current_population=current_population,
+                    projected_population=projected_population,
+                    completed_housing=completed_housing,
+                    queued_housing=queued_housing,
+                    arriving_housing=arriving_housing,
+                    housing_gap=housing_gap,
+                    supply_stock=supply_value,
+                    supply_intake=supply_intake,
+                    supply_outtake=supply_outtake,
+                    effective_modifier=supply_modifier,
+                    modifier_basis=supply_modifier_basis,
+                    added_supply_demand=added_supply_demand,
+                    projected_outtake=projected_outtake,
+                    projected_net=projected_net,
+                    runway_days=runway_days,
+                ),
+                tech_adjustment=supply_tech_adjustment,
+            )
+        )
+
+    return metrics
 
 
 def population_destination_details(metric: PopulationReadinessMetric) -> tuple[str, ...]:

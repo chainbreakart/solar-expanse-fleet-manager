@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from nicegui import ui
 
 from fleet_core.analysis import SaveAnalysis
-from fleet_core.normalizer import fmt_num
+from fleet_core.normalizer_utils import fmt_num
 from fleet_core.population_facts import runway_label
 
 
@@ -369,6 +369,272 @@ def place_kpis(place_rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
         ("Inbound", str(inbound), "people currently routed to these places"),
         ("Concerns", str(concerns), f"{monitor} monitor-only; {stable} places have non-negative Supply flow"),
     ]
+
+
+def population_hub_brief(
+    analysis: SaveAnalysis,
+    meta: dict[str, str],
+    place_rows: list[dict[str, Any]],
+    flight_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    population = sum(float(row["current_population"]) for row in place_rows)
+    ready_housing = sum(float(row["completed_housing"]) for row in place_rows)
+    free_housing = sum(max(float(row["free_housing"]), 0.0) for row in place_rows)
+    inbound_people = sum(int(row["people"]) for row in flight_rows if int(row["people"]) > 0)
+    concerns = sum(1 for row in place_rows if row["status"] in ATTENTION_STATUSES)
+    monitors = sum(1 for row in place_rows if row["status"] == "Monitor")
+
+    place_label = "settlement node" if len(place_rows) == 1 else "settlement nodes"
+    if population > 0:
+        title = f"{fmt_num(population)} people across {fmt_num(len(place_rows))} {place_label}"
+    elif place_rows and inbound_people:
+        title = f"{fmt_num(inbound_people)} people moving toward {fmt_num(len(place_rows))} {place_label}"
+    elif place_rows:
+        title = f"{fmt_num(len(place_rows))} prepared {place_label} detected"
+    elif inbound_people:
+        title = f"{fmt_num(inbound_people)} people moving toward new footholds"
+    else:
+        title = "No population network detected"
+
+    if concerns:
+        posture = f"{fmt_num(concerns)} place(s) need housing or Supply review before expansion."
+    elif monitors:
+        posture = f"{fmt_num(monitors)} place(s) are monitor-only; the network is stable but worth watching."
+    elif place_rows:
+        posture = "Detected settlements have no actionable sustainment flags."
+    else:
+        posture = "Start by validating movement, habitat, and Supply evidence as the first colonies appear."
+
+    return {
+        "title": title,
+        "posture": posture,
+        "stats": [
+            ("Game date", meta.get("current_time") or "-"),
+            ("Inbound people", fmt_num(inbound_people)),
+            ("Ready habitat", fmt_num(ready_housing)),
+            ("Free capacity", fmt_num(free_housing)),
+        ],
+        "scope": analysis.player_company or ", ".join(sorted(analysis.active_companies)) or "No company detected",
+    }
+
+
+def population_watch_rows(place_rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, str]]:
+    watched = [
+        row
+        for row in sort_place_rows(place_rows, focus="risk")
+        if row["status"] in ATTENTION_STATUSES | {"Monitor"}
+    ][:limit]
+    return [
+        {
+            "status": str(row["status"]),
+            "place": str(row["place"]),
+            "message": str(row["message"]),
+            "detail": f"{row['runway']} Supply runway; {fmt_num(row['free_housing'])} free housing; {row['inbound_people']} inbound",
+            "url": "/population/places",
+        }
+        for row in watched
+    ]
+
+
+def population_hub_cards(
+    place_rows: list[dict[str, Any]],
+    flight_rows: list[dict[str, Any]],
+    meta: dict[str, str],
+) -> list[dict[str, str]]:
+    moving_people = sum(int(row["people"]) for row in flight_rows if int(row["people"]) > 0)
+    empty_modules = sum(int(row["empty_modules"]) for row in flight_rows)
+    places_with_people = sum(1 for row in place_rows if float(row["current_population"]) > 0)
+    housing_gap = sum(max(float(row["housing_gap"]), 0.0) for row in place_rows)
+    burning_supply = sum(1 for row in place_rows if float(row["supply_net_per_day"]) < 0)
+    concerns = sum(1 for row in place_rows if row["status"] in ATTENTION_STATUSES)
+    empty_seats = int(str(meta.get("empty_crew_seats") or "0").replace(",", "") or 0)
+    return [
+        {
+            "title": "Migration",
+            "value": fmt_num(moving_people),
+            "copy": f"{len(flight_rows)} flight row(s); {fmt_num(empty_modules)} empty hold(s) available for assignment.",
+            "url": "/population/movement",
+        },
+        {
+            "title": "Settlements",
+            "value": fmt_num(places_with_people),
+            "copy": f"{fmt_num(len(place_rows))} node(s) have population, habitat, or inbound people evidence.",
+            "url": "/population/places",
+        },
+        {
+            "title": "Habitat Margin",
+            "value": fmt_num(housing_gap),
+            "copy": f"{fmt_num(empty_seats)} empty transport seat(s); gap is ready housing shortfall.",
+            "url": "/population/places",
+        },
+        {
+            "title": "Sustainment",
+            "value": fmt_num(concerns),
+            "copy": f"{fmt_num(burning_supply)} place(s) are consuming more Supply than they produce.",
+            "url": "/population/places",
+        },
+    ]
+
+
+def population_balance_by_body(analysis: SaveAnalysis, *, limit: int = 8) -> list[dict[str, Any]]:
+    place_rows = {str(row["place"]): row for row in population_places(analysis)}
+    destination_rows = {str(row["destination"]): row for row in population_metrics_by_destination(analysis)}
+    flight_rows = population_flights(analysis)
+    body_names = set(place_rows) | set(destination_rows)
+    body_names.update(str(row["destination"]) for row in flight_rows if int(row["people"]) > 0 and row["destination"])
+
+    outbound_empty_seats: dict[str, int] = defaultdict(int)
+    outbound_empty_holds: dict[str, int] = defaultdict(int)
+    for row in flight_rows:
+        source = str(row["source"] or "")
+        if not source:
+            continue
+        outbound_empty_seats[source] += int(row["empty_seats"])
+        outbound_empty_holds[source] += int(row["empty_modules"])
+
+    rows: list[dict[str, Any]] = []
+    for body in sorted(body_names):
+        place = place_rows.get(body, {})
+        destination = destination_rows.get(body, {})
+        status = str(destination.get("status") or place.get("status") or "Monitor")
+        inbound_people = int(destination.get("inbound_people") or place.get("inbound_people") or 0)
+        current_population = float(place.get("current_population") or destination.get("current_population") or 0)
+        completed_housing = float(place.get("completed_housing") or destination.get("completed_housing") or 0)
+        queued_housing = float(place.get("queued_housing") or destination.get("queued_housing") or 0)
+        arriving_housing = float(destination.get("arriving_housing") or 0)
+        free_housing = float(place.get("free_housing") or 0)
+        housing_gap = float(destination.get("housing_gap") or place.get("housing_gap") or 0)
+        supply_stock = float(place.get("supply_stock") or destination.get("supply_stock") or 0)
+        supply_net = float(place.get("supply_net_per_day") or destination.get("projected_supply_net_per_day") or 0)
+        runway_days = place.get("runway_days")
+        if runway_days is None:
+            runway_days = destination.get("runway_days")
+        details = [
+            f"Population: {fmt_num(current_population)} local + {fmt_num(inbound_people)} inbound",
+            f"Housing: {fmt_num(completed_housing)} ready, {fmt_num(queued_housing)} queued, {fmt_num(arriving_housing)} carried",
+            f"Supply: {fmt_num(supply_stock)}t stock, {fmt_num(supply_net)}t/day net, runway {runway_label(runway_days, supply_net)}",
+            f"Outbound capacity: {fmt_num(outbound_empty_seats[body])} empty seats, {fmt_num(outbound_empty_holds[body])} empty holds",
+        ]
+        rows.append(
+            {
+                "key": f"population-balance:{body}",
+                "body": body,
+                "status": status,
+                "status_class": f"readiness-{status.lower()}",
+                "population_value": current_population,
+                "inbound_people": inbound_people,
+                "housing_gap": housing_gap,
+                "ready_housing": completed_housing,
+                "queued_housing": queued_housing,
+                "arriving_housing": arriving_housing,
+                "free_housing": free_housing,
+                "supply_stock": supply_stock,
+                "supply_net": supply_net,
+                "runway_days": runway_days,
+                "runway": runway_label(runway_days, supply_net),
+                "empty_outbound_seats": outbound_empty_seats[body],
+                "empty_outbound_holds": outbound_empty_holds[body],
+                "summary": (
+                    f"{fmt_num(current_population)} local, {fmt_num(inbound_people)} inbound, "
+                    f"{fmt_num(housing_gap)} housing gap"
+                ),
+                "details": details,
+                "url": "/population/places" if place else movement_link(destination=body),
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            -STATUS_RANK.get(str(row["status"]), 0),
+            row["runway_days"] is None,
+            float(row["runway_days"]) if row["runway_days"] is not None else float("inf"),
+            -int(row["inbound_people"]),
+            -float(row["housing_gap"]),
+            str(row["body"]),
+        )
+    )
+    return rows[:limit]
+
+
+def flight_cohort_cards(analysis: SaveAnalysis, *, limit: int = 8) -> list[dict[str, Any]]:
+    cohorts: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in population_flights(analysis):
+        if int(row["people"]) <= 0 and int(row["empty_modules"]) <= 0 and int(row["empty_seats"]) <= 0:
+            continue
+        destination = str(row["destination"] or "Unknown destination")
+        arrival = str(row["arrival"] or "Undated")
+        status = str(row["status_label"] or "Monitor")
+        key = (destination, arrival, status)
+        cohort = cohorts.setdefault(
+            key,
+            {
+                "key": f"flight-cohort:{destination}:{arrival}:{status}",
+                "destination": destination,
+                "arrival": arrival,
+                "status": status,
+                "status_class": f"readiness-{status.lower()}",
+                "people": 0,
+                "empty_seats": 0,
+                "empty_modules": 0,
+                "loaded_modules": 0,
+                "craft": set(),
+                "missions": [],
+                "routes": set(),
+                "details": [],
+                "sort_dt": row["arrival_dt"],
+                "url": movement_link(destination=destination),
+            },
+        )
+        cohort["people"] += int(row["people"])
+        cohort["empty_seats"] += int(row["empty_seats"])
+        cohort["empty_modules"] += int(row["empty_modules"])
+        cohort["loaded_modules"] += int(row["loaded_modules"])
+        cohort["craft"].update(str(row["craft"]).split(", ") if row["craft"] else [])
+        cohort["missions"].append(str(row["mission_id"] or row["mission_key"]))
+        if row["route"]:
+            cohort["routes"].add(str(row["route"]))
+        cohort["details"].append(
+            f"{row['mission_id'] or row['mission_key']}: {row['craft']} carrying {fmt_num(row['people'])} people; {fmt_num(row['empty_seats'])} empty seats"
+        )
+        if cohort["sort_dt"] is None and row["arrival_dt"] is not None:
+            cohort["sort_dt"] = row["arrival_dt"]
+
+    cards = []
+    for cohort in cohorts.values():
+        craft = sorted(item for item in cohort["craft"] if item)
+        routes = sorted(cohort["routes"])
+        cards.append(
+            {
+                "key": cohort["key"],
+                "destination": cohort["destination"],
+                "arrival": cohort["arrival"],
+                "status": cohort["status"],
+                "status_class": cohort["status_class"],
+                "people": cohort["people"],
+                "empty_seats": cohort["empty_seats"],
+                "empty_modules": cohort["empty_modules"],
+                "loaded_modules": cohort["loaded_modules"],
+                "craft": ", ".join(craft[:3]) + (f" +{len(craft) - 3} more" if len(craft) > 3 else ""),
+                "mission_count": len(cohort["missions"]),
+                "route": routes[0] if routes else "",
+                "summary": (
+                    f"{fmt_num(cohort['people'])} people, {fmt_num(cohort['empty_seats'])} empty seats, "
+                    f"{fmt_num(cohort['empty_modules'])} empty holds"
+                ),
+                "details": cohort["details"][:8],
+                "sort_dt": cohort["sort_dt"],
+                "url": cohort["url"],
+            }
+        )
+    cards.sort(
+        key=lambda row: (
+            row["sort_dt"] is None,
+            row["sort_dt"] or "",
+            -STATUS_RANK.get(str(row["status"]), 0),
+            str(row["destination"]),
+        )
+    )
+    return cards[:limit]
 
 
 def place_runway_sort_value(row: dict[str, Any]) -> float:
@@ -1019,6 +1285,114 @@ def render_chart_card(title: str, fig: go.Figure, *, enable_click_drilldown: boo
                 "plotly_click",
                 lambda event: ui.navigate.to(plot_click_url(event.args)) if plot_click_url(event.args) else None,
             )
+
+
+def render_population_balance_cards(rows: list[dict[str, Any]]) -> None:
+    with ui.element("div").classes("dashboard-card dashboard-card-wide"):
+        with ui.row().classes("dashboard-title-row"):
+            ui.label("Population Balance By Body").classes("dashboard-card-title")
+            ui.link("Open places", "/population/places").classes("table-drilldown-link")
+        if not rows:
+            ui.label("No population bodies, habitat, or inbound cohorts detected in this save scope.").classes("empty-state-note")
+            return
+        with ui.element("div").classes("overview-domain-grid population-hub-domain-grid"):
+            for row in rows:
+                with ui.link(target=row["url"]).classes("section-card overview-domain-card"):
+                    with ui.row().classes("dashboard-title-row"):
+                        ui.label(row["body"]).classes("section-card-title")
+                        ui.label(row["status"]).classes(f"overview-severity overview-severity-{str(row['status']).lower()}")
+                    ui.label(row["summary"]).classes("section-card-copy")
+                    ui.label(f"Runway {row['runway']}").classes("overview-queue-message")
+                    with ui.tooltip().classes("return-fuel-tooltip").props('anchor="top middle" self="bottom middle" :offset="[0, 8]"'):
+                        ui.label(row["body"]).classes("return-fuel-tooltip-title")
+                        for line in row["details"]:
+                            ui.label(str(line)).classes("return-fuel-tooltip-line")
+
+
+def render_flight_cohort_cards(rows: list[dict[str, Any]]) -> None:
+    with ui.element("div").classes("dashboard-card dashboard-card-wide"):
+        with ui.row().classes("dashboard-title-row"):
+            ui.label("Flight Cohorts").classes("dashboard-card-title")
+            ui.link("Open movement", "/population/movement").classes("table-drilldown-link")
+        if not rows:
+            ui.label("No passenger cohorts or empty transport cohorts detected in this save scope.").classes("empty-state-note")
+            return
+        with ui.element("div").classes("overview-domain-grid population-hub-domain-grid"):
+            for row in rows:
+                with ui.link(target=row["url"]).classes("section-card overview-domain-card"):
+                    with ui.row().classes("dashboard-title-row"):
+                        ui.label(row["destination"]).classes("section-card-title")
+                        ui.label(row["status"]).classes(f"overview-severity overview-severity-{str(row['status']).lower()}")
+                    ui.label(row["summary"]).classes("section-card-copy")
+                    ui.label(f"Arrival {row['arrival']} · {row['mission_count']} mission(s)").classes("overview-queue-message")
+                    if row["craft"]:
+                        ui.label(str(row["craft"])).classes("overview-queue-message")
+                    with ui.tooltip().classes("return-fuel-tooltip").props('anchor="top middle" self="bottom middle" :offset="[0, 8]"'):
+                        ui.label(f"{row['destination']} cohort").classes("return-fuel-tooltip-title")
+                        ui.label(f"Route: {row['route'] or 'mixed / unknown'}").classes("return-fuel-tooltip-line")
+                        ui.label(f"Loaded modules: {fmt_num(row['loaded_modules'])}; empty holds: {fmt_num(row['empty_modules'])}").classes(
+                            "return-fuel-tooltip-line"
+                        )
+                        for line in row["details"]:
+                            ui.label(str(line)).classes("return-fuel-tooltip-line")
+
+
+def render_population_hub_dashboard(analysis: SaveAnalysis, meta: dict[str, str], container: ui.element) -> None:
+    container.clear()
+    place_rows = sort_place_rows(population_places(analysis), focus="risk")
+    flight_rows = population_flights(analysis)
+    footprint_rows = chart_place_rows(sort_place_rows(place_rows, focus="population"), limit=8)
+    brief = population_hub_brief(analysis, meta, place_rows, flight_rows)
+    watch_rows = population_watch_rows(place_rows)
+    cards = population_hub_cards(place_rows, flight_rows, meta)
+    balance_rows = population_balance_by_body(analysis)
+    cohort_rows = flight_cohort_cards(analysis)
+
+    with container:
+        with ui.element("div").classes("overview-command-grid population-hub-command-grid"):
+            with ui.element("div").classes("command-brief-panel"):
+                ui.label("Population Brief").classes("command-brief-label")
+                ui.label(brief["title"]).classes("command-brief-title")
+                ui.label(brief["posture"]).classes("command-brief-copy")
+                ui.label(f"Scope: {brief['scope']}").classes("command-brief-scope")
+                with ui.element("div").classes("command-brief-stats"):
+                    for label, value in brief["stats"]:
+                        with ui.element("div").classes("command-brief-stat"):
+                            ui.label(label).classes("command-brief-stat-label")
+                            ui.label(value).classes("command-brief-stat-value")
+            render_chart_card("Habitat / Occupancy", place_housing_figure(footprint_rows, limit=None))
+
+        with ui.element("div").classes("overview-visual-grid population-hub-visual-grid"):
+            render_chart_card("Population Flow", population_flow_sankey(flight_rows), enable_click_drilldown=True)
+            with ui.element("div").classes("dashboard-card overview-queue-card"):
+                with ui.row().classes("dashboard-title-row"):
+                    ui.label("Sustainment Watch").classes("dashboard-card-title")
+                    ui.link("Open places", "/population/places").classes("table-drilldown-link")
+                if watch_rows:
+                    with ui.element("div").classes("overview-queue-list"):
+                        for row in watch_rows:
+                            with ui.link(target=row["url"]).classes("overview-queue-row"):
+                                ui.label(row["status"]).classes(
+                                    f"overview-severity overview-severity-{row['status'].lower()}"
+                                )
+                                with ui.element("div").classes("overview-queue-copy"):
+                                    ui.label(row["place"]).classes("overview-queue-title")
+                                    ui.label(row["message"]).classes("overview-queue-message")
+                                    ui.label(row["detail"]).classes("overview-queue-message")
+                else:
+                    ui.label("No settlement sustainment watch rows for the focused save.").classes("empty-state-note")
+
+        with ui.element("div").classes("overview-domain-grid population-hub-domain-grid"):
+            for card in cards:
+                with ui.element("div").classes("section-card overview-domain-card"):
+                    ui.label(card["title"]).classes("section-card-title")
+                    ui.label(card["value"]).classes("overview-domain-value")
+                    ui.label(card["copy"]).classes("section-card-copy")
+                    ui.link("Open", card["url"]).classes("section-link mt-3 inline-flex")
+
+        with ui.element("div").classes("overview-visual-grid population-hub-visual-grid"):
+            render_population_balance_cards(balance_rows)
+            render_flight_cohort_cards(cohort_rows)
 
 
 def render_places_charts(place_rows: list[dict[str, Any]], container: ui.element) -> None:

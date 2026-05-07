@@ -201,6 +201,26 @@ class ResourceStockFact:
 
 
 @dataclass(frozen=True)
+class KnownResourceDepositFact:
+    deposit_key: str
+    company: str
+    object_id: int
+    object_label: str
+    object_type: str
+    resource_key: str
+    resource_name: str
+    known_state: str
+    exploration_progress: float
+    remaining: float | None
+    mining_factor: float | None
+    resource_state: str
+    selected_to_mine: bool
+    source_path: str
+    confidence: str
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class TechUnlockFact:
     company: str
     research_id: str

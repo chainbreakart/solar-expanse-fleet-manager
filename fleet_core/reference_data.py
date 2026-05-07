@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .fact_model import TechReferenceCatalog, TechReferenceModifier, TechReferenceRow
-from .normalizer import friendly_key
+from .normalizer_utils import friendly_key
 
 
 REPO_GENERATED_DATA = "generated_data"
