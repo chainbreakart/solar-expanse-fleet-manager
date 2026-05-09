@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Start with Discussions
+    url: https://github.com/chainbreakart/solar-expanse-fleet-manager/discussions/65
+    about: Questions, unclear bugs, save-specific warnings, install help, and early feature ideas start here.
+  - name: Ask a Q&A question
+    url: https://github.com/chainbreakart/solar-expanse-fleet-manager/discussions/categories/q-a
+    about: Use Q&A for support requests and questions about what the app is showing.
+  - name: Share a feature idea
+    url: https://github.com/chainbreakart/solar-expanse-fleet-manager/discussions/categories/ideas
+    about: Use Ideas for rough suggestions before they become tracked roadmap work.
+  - name: View the roadmap
+    url: https://github.com/users/chainbreakart/projects/1
+    about: Check planned and in-progress work before opening a new discussion.
