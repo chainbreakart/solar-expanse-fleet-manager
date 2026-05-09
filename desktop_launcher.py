@@ -6,12 +6,12 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +22,7 @@ sys.path.insert(0, str(APP_DIR))
 
 from fleet_core.app_paths import APP_NAME, ensure_user_dirs
 
-URL_PATTERN = re.compile(r"Open Solar Expanse Fleet Manager at (http://\S+)")
+URL_PATTERN = re.compile(r"(?:Open Solar Expanse Fleet Manager at|NiceGUI ready to go on) (http://\S+)")
 CONFIG_FILE_NAME = "desktop_config.json"
 WINDOW_WIDTH = 1420
 WINDOW_HEIGHT = 920
@@ -248,10 +248,13 @@ def _close_process_streams(process: subprocess.Popen[str]) -> None:
 
 
 def _url_is_ready(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or not parsed.port:
+        return False
     try:
-        with urllib.request.urlopen(url, timeout=1.0) as response:
-            return response.status < 500
-    except (OSError, urllib.error.URLError):
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=1.0):
+            return True
+    except OSError:
         return False
 
 

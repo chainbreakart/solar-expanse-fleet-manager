@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.2 - Desktop Startup Hotfix
+
+This hotfix release corrects a desktop-launcher readiness bug that could show the recovery screen even after the local NiceGUI server had already started successfully.
+
+### Fixes
+
+- The desktop launcher now recognizes NiceGUI's own `NiceGUI ready to go on ...` startup message as a successful server URL.
+- The startup readiness check now uses a lightweight local port connection instead of an HTTP page request, avoiding noisy Windows connection-reset errors during launch.
+
+### Notes
+
+- This release is intended for Windows users who saw "Fleet Manager could not start" while the recovery window also showed `NiceGUI ready to go on http://127.0.0.1:8080`.
+- The app remains read-only and does not edit or write save files.
+
 ## 0.11.1 - Windows Desktop and Fleet Control Update
 
 This patch release makes Fleet Manager easier to run on Windows and promotes ship inventory into a first-class Fleet Control workflow. The app is still a local, read-only save companion, but Windows users can now start from an installer instead of building from source.
