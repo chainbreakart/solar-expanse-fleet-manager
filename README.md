@@ -4,6 +4,14 @@ Solar Expanse Fleet Manager is a read-only companion dashboard for **Solar Expan
 
 This is an early public preview. It is meant for logistics inspection and validation, not save editing.
 
+## Questions, Feedback, And Roadmap
+
+Start with [GitHub Discussions](https://github.com/chainbreakart/solar-expanse-fleet-manager/discussions) if you are not sure whether something is a bug, feature request, save-specific edge case, or general question. The [Start here discussion](https://github.com/chainbreakart/solar-expanse-fleet-manager/discussions/65) is the best first stop for confusing warnings, logistics assumptions, install trouble, and early feature ideas.
+
+Use [Issues](https://github.com/chainbreakart/solar-expanse-fleet-manager/issues) for confirmed, focused work once there is enough detail to track a fix or feature. Maintainers may promote a discussion into an issue when it becomes actionable. The public roadmap lives in the [Fleet Manager Roadmap project](https://github.com/users/chainbreakart/projects/1).
+
+Please do not post private save files publicly. Screenshots, dashboard names, expected vs. actual behavior, and the Fleet Manager version are usually enough to start.
+
 ## Current Features
 
 - Automatic save discovery for standard Windows/WSL Solar Expanse save locations.
